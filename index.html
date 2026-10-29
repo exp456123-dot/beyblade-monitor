@@ -1,753 +1,2737 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
-
 <head>
+    <meta charset="UTF-8">
 
-<meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
 
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
+    <title>戰鬥陀螺開賣監控器</title>
 
-<meta
-    http-equiv="refresh"
-    content="300"
->
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-<title>戰鬥陀螺開賣雷達</title>
+        body {
+            margin: 0;
+            background: #f4f6f9;
+            color: #172033;
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                "Microsoft JhengHei",
+                sans-serif;
+        }
 
-<style>
+        header {
+            color: white;
+            background:
+                linear-gradient(
+                    135deg,
+                    #101c3b,
+                    #244fad
+                );
+            padding: 36px 20px;
+        }
 
-* {
-    box-sizing: border-box;
-}
+        .header-inner {
+            width: min(1200px, 100%);
+            margin: 0 auto;
+        }
 
-body {
-    margin: 0;
-    background: #0b1020;
-    color: white;
-    font-family:
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        "Microsoft JhengHei",
-        sans-serif;
-}
+        h1 {
+            margin: 0 0 10px;
+            font-size: 30px;
+        }
 
-.header {
-    background:
-        linear-gradient(
-            135deg,
-            #e53935,
-            #ff9800
-        );
-    padding: 28px 18px;
-    text-align: center;
-}
+        .subtitle {
+            margin: 0;
+            opacity: 0.9;
+            line-height: 1.7;
+        }
 
-.header h1 {
-    margin: 0;
-    font-size: 30px;
-}
+        main {
+            width: min(1200px, 100%);
+            margin: 0 auto;
+            padding: 24px 16px 60px;
+        }
 
-.header p {
-    margin: 10px 0 0;
-    opacity: 0.95;
-}
+        .summary {
+            display: grid;
+            grid-template-columns:
+                repeat(
+                    auto-fit,
+                    minmax(180px, 1fr)
+                );
+            gap: 14px;
+            margin-bottom: 20px;
+        }
 
-.container {
-    max-width: 900px;
-    margin: auto;
-    padding: 18px;
-}
+        .summary-card {
+            background: white;
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow:
+                0 4px 18px
+                rgba(27, 39, 72, 0.08);
+        }
 
-.info {
-    background: #151d34;
-    padding: 16px;
-    border-radius: 14px;
-    margin-bottom: 18px;
-}
+        .summary-card strong {
+            display: block;
+            font-size: 28px;
+            color: #244fad;
+            margin-top: 4px;
+        }
 
-.count {
-    font-size: 22px;
-    font-weight: bold;
-    color: #ffca28;
-}
+        .controls {
+            display: grid;
+            grid-template-columns:
+                minmax(0, 1fr)
+                220px
+                180px;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
 
-.card {
-    background: #151d34;
-    border: 1px solid #273453;
-    border-radius: 16px;
-    padding: 18px;
-    margin-bottom: 14px;
-    box-shadow:
-        0 4px 12px
-        rgba(0, 0, 0, 0.25);
-}
+        input,
+        select {
+            width: 100%;
+            border: 1px solid #ccd3df;
+            border-radius: 10px;
+            background: white;
+            padding: 12px 14px;
+            font-size: 16px;
+        }
 
-.store {
-    display: inline-block;
-    padding: 5px 10px;
-    background: #1976d2;
-    border-radius: 20px;
-    font-size: 14px;
-    margin-bottom: 10px;
-}
+        .products {
+            display: grid;
+            grid-template-columns:
+                repeat(
+                    auto-fill,
+                    minmax(280px, 1fr)
+                );
+            gap: 16px;
+        }
 
-.name {
-    font-size: 18px;
-    line-height: 1.5;
-    font-weight: 600;
-}
+        .product-card {
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 16px;
+            padding: 18px;
+            min-height: 260px;
+            box-shadow:
+                0 4px 18px
+                rgba(27, 39, 72, 0.08);
+            border:
+                1px solid
+                rgba(36, 79, 173, 0.08);
+        }
 
-.price {
-    color: #ffca28;
-    font-size: 26px;
-    font-weight: bold;
-    margin: 14px 0;
-}
+        .card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
 
-.buy {
-    display: block;
-    width: 100%;
-    padding: 13px;
-    border-radius: 10px;
-    background: #e53935;
-    color: white;
-    text-decoration: none;
-    text-align: center;
-    font-weight: bold;
-}
+        .store {
+            color: #244fad;
+            font-weight: 700;
+        }
 
-.buy:hover {
-    background: #ff5252;
-}
+        .status {
+            border-radius: 999px;
+            padding: 5px 9px;
+            font-size: 13px;
+            font-weight: 700;
+        }
 
-.empty {
-    background: #151d34;
-    padding: 30px;
-    border-radius: 14px;
-    text-align: center;
-}
+        .available {
+            color: #08783f;
+            background: #dcf8e9;
+        }
 
-.footer {
-    text-align: center;
-    color: #8892a6;
-    font-size: 13px;
-    padding: 20px;
-}
+        .unavailable {
+            color: #9a2c2c;
+            background: #fde5e5;
+        }
 
-</style>
+        .product-card h2 {
+            font-size: 17px;
+            line-height: 1.55;
+            margin: 16px 0;
+            flex-grow: 1;
+        }
 
+        .price {
+            color: #dc3f32;
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .last-seen {
+            color: #697386;
+            font-size: 13px;
+            margin-bottom: 14px;
+        }
+
+        .buy-button {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            color: white;
+            background: #244fad;
+            border-radius: 10px;
+            padding: 12px;
+            font-weight: 700;
+        }
+
+        .buy-button:hover {
+            background: #193880;
+        }
+
+        .empty {
+            display: none;
+            text-align: center;
+            background: white;
+            border-radius: 14px;
+            padding: 40px;
+            color: #697386;
+        }
+
+        footer {
+            text-align: center;
+            color: #697386;
+            padding: 25px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 760px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
 </head>
 
 <body>
+    <header>
+        <div class="header-inner">
+            <h1>🔥 戰鬥陀螺開賣監控器</h1>
 
-<div class="header">
-
-    <h1>🔥 戰鬥陀螺開賣雷達</h1>
-
-    <p>
-        Beyblade X 商品監控
-    </p>
-
-</div>
-
-<div class="container">
-
-    <div class="info">
-
-        <div class="count">
-            📦 找到 27 筆商品
+            <p class="subtitle">
+                監控 PChome、momo、蝦皮與誠品<br>
+                最後更新：2026-10-29 16:28:30
+            </p>
         </div>
+    </header>
 
-        <div>
-            🕐 最後更新：2026-10-29 14:41:45
+    <main>
+        <section class="summary">
+            <div class="summary-card">
+                商品紀錄
+                <strong>78</strong>
+            </div>
+
+            <div class="summary-card">
+                有貨或可購買
+                <strong>78</strong>
+            </div>
+
+            <div class="summary-card">
+                賣場
+                <strong>2</strong>
+            </div>
+        </section>
+
+        <p>
+            PChome 24h 62 筆・momo購物網 16 筆
+        </p>
+
+        <section class="controls">
+            <input
+                id="searchInput"
+                type="search"
+                placeholder="搜尋 CX、UX、BX 或商品名稱">
+
+            <select id="storeFilter">
+                <option value="">全部賣場</option>
+                <option value="PChome 24h">PChome 24h</option>
+                <option value="momo購物網">momo購物網</option>
+                <option value="蝦皮購物">蝦皮購物</option>
+                <option value="誠品線上">誠品線上</option>
+            </select>
+
+            <select id="stockFilter">
+                <option value="">全部狀態</option>
+                <option value="true">有貨或可購買</option>
+                <option value="false">疑似缺貨</option>
+            </select>
+        </section>
+
+        <section
+            id="productList"
+            class="products">
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 世代 BX-18 X 旋風發射器"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 世代 BX-18 X 旋風發射器</h2>
+
+                <div class="price">
+                    NT$649
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:11:03
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KLU07"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Beyblade X 戰鬥陀螺X BX-05 魔導幻箭 魔法箭 巫師之箭 4-80O 組裝強化包 (美版)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Beyblade X 戰鬥陀螺X BX-05 魔導幻箭 魔法箭 巫師之箭 4-80O 組裝強化包 (美版)</h2>
+
+                <div class="price">
+                    NT$728
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900K80FB"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-33 皓戰猛虎 3-60 U軸 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-33 皓戰猛虎 3-60 U軸 陀螺</h2>
+
+                <div class="price">
+                    NT$790
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900KMK4Z"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="CX-15 邪神狂怒 FE4-55Y 右旋 BB09615 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>CX-15 邪神狂怒 FE4-55Y 右旋 BB09615 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$850
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K2EFJ"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARATOMY BEYBLADE X 戰鬥陀螺X CX-17 隨機強化組 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARATOMY BEYBLADE X 戰鬥陀螺X CX-17 隨機強化組 陀螺</h2>
+
+                <div class="price">
+                    NT$890
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:11:03
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5SMN"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade X 戰鬥陀螺 CX-10 銀狼狩獵 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade X 戰鬥陀螺 CX-10 銀狼狩獵 陀螺</h2>
+
+                <div class="price">
+                    NT$890
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5SLX"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 BX-29 X發射器改造型握把(白藍)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 BX-29 X發射器改造型握把(白藍)</h2>
+
+                <div class="price">
+                    NT$899
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KLTDQ"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 CX-03 英仙幽冥 台灣QR扣"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 CX-03 英仙幽冥 台灣QR扣</h2>
+
+                <div class="price">
+                    NT$899
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KLTY3"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺CX-03 英仙幽冥 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺CX-03 英仙幽冥 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$899
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900IM2NZ"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="日本 BEYBLADE X 戰鬥陀螺 UX-13 魔像奇岩 BB93957"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>日本 BEYBLADE X 戰鬥陀螺 UX-13 魔像奇岩 BB93957</h2>
+
+                <div class="price">
+                    NT$899
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900IGQJ0"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARATOMY BEYBLADE X 戰鬥陀螺X BX-11 發射器握把 不包含發射器 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARATOMY BEYBLADE X 戰鬥陀螺X BX-11 發射器握把 不包含發射器 陀螺</h2>
+
+                <div class="price">
+                    NT$990
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5JPI"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-02 惡魔紅鐮 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-02 惡魔紅鐮 陀螺</h2>
+
+                <div class="price">
+                    NT$990
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5JOO"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Beyblade X 戰鬥陀螺X 蒼龍勇氣 魔犬烈焰 赫燃天鳳 雄獅獠牙 霜輝銀狼 含發射器(美版)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Beyblade X 戰鬥陀螺X 蒼龍勇氣 魔犬烈焰 赫燃天鳳 雄獅獠牙 霜輝銀狼 含發射器(美版)</h2>
+
+                <div class="price">
+                    NT$999
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KHE04"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-10 銀狼狩獵 TAKARA TOMY公司貨"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-10 銀狼狩獵 TAKARA TOMY公司貨</h2>
+
+                <div class="price">
+                    NT$999
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900JHFHU"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-14 騎士堡壘 正版公司貨 BB09726 BEYBLADE X 公司貨"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-14 騎士堡壘 正版公司貨 BB09726 BEYBLADE X 公司貨</h2>
+
+                <div class="price">
+                    NT$999
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K2EG8"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-16-2 時鐘幻象 黑 確認版強化組 BB99015"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-16-2 時鐘幻象 黑 確認版強化組 BB99015</h2>
+
+                <div class="price">
+                    NT$999
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KITOH"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-16-3 時鐘幻象 紅 確認版強化組 BB99015 台灣版"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-16-3 時鐘幻象 紅 確認版強化組 BB99015 台灣版</h2>
+
+                <div class="price">
+                    NT$999
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KITO5"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺X CX-18 腕龍鞭打 OW5-70Nr 隨機強化組(不含發射器) 日版 CX-18"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺X CX-18 腕龍鞭打 OW5-70Nr 隨機強化組(不含發射器) 日版 CX-18</h2>
+
+                <div class="price">
+                    NT$1,046
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DXAX9O-A900KJGBY"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-02 魔導至尊 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-02 魔導至尊 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,050
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900ILY9R"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARATOMY BEYBLADE X 戰鬥陀螺X BX-30 發射器握把 不包含發射器 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARATOMY BEYBLADE X 戰鬥陀螺X BX-30 發射器握把 不包含發射器 陀螺</h2>
+
+                <div class="price">
+                    NT$1,090
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:11:03
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900KKW4N"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARATOMY BEYBLADE X 戰鬥陀螺X UX-16 時鐘幻象隨機強化組 盲包 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARATOMY BEYBLADE X 戰鬥陀螺X UX-16 時鐘幻象隨機強化組 盲包 陀螺</h2>
+
+                <div class="price">
+                    NT$1,090
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5SMB"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade 戰鬥陀螺 X 世代 BX-18 X旋風發射器 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade 戰鬥陀螺 X 世代 BX-18 X旋風發射器 陀螺</h2>
+
+                <div class="price">
+                    NT$1,090
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:11:03
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K6GNN"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Beyblade X 戰鬥陀螺X 美杜莎 巨角雄鹿 鐵壁黃蜂 海怪克拉肯 含發射器(美版)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Beyblade X 戰鬥陀螺X 美杜莎 巨角雄鹿 鐵壁黃蜂 海怪克拉肯 含發射器(美版)</h2>
+
+                <div class="price">
+                    NT$1,099
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900K8C1Q"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-17 隕星龍騎士 左迴旋 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-17 隕星龍騎士 左迴旋 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,100
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900JN3OH"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺CX-01 蒼龍勇氣BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺CX-01 蒼龍勇氣BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,100
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900IM2NA"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺CX-07 天馬爆擊 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺CX-07 天馬爆擊 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,100
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900J40BT"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="日本 戰鬥陀螺 UX-06 雄獅巔峰 BEYBLADE X BB91460"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>日本 戰鬥陀螺 UX-06 雄獅巔峰 BEYBLADE X BB91460</h2>
+
+                <div class="price">
+                    NT$1,100
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900HQFMM"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-04 防禦型陀螺 含發射器 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-04 防禦型陀螺 含發射器 陀螺</h2>
+
+                <div class="price">
+                    NT$1,190
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K53DD"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 UX-13 魔像奇岩 1-60UN 台灣QR扣"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 UX-13 魔像奇岩 1-60UN 台灣QR扣</h2>
+
+                <div class="price">
+                    NT$1,199
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KLU1N"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-18-1紫綠色 籤王 腕龍鞭打 Nr軸 確定版強化組 BB09617 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-18-1紫綠色 籤王 腕龍鞭打 Nr軸 確定版強化組 BB09617 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,199
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KCPVW"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-16-1 時鐘幻象 綠 確認版強化組 BB99015 台灣版"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-16-1 時鐘幻象 綠 確認版強化組 BB99015 台灣版</h2>
+
+                <div class="price">
+                    NT$1,199
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KITOG"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺UX-08 霜輝銀狼 BB93949 BEYBLADE X 台灣版麗嬰代理"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺UX-08 霜輝銀狼 BB93949 BEYBLADE X 台灣版麗嬰代理</h2>
+
+                <div class="price">
+                    NT$1,199
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K5JDP"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="日本 戰鬥陀螺 CX-09 焰神滅世 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>日本 戰鬥陀螺 CX-09 焰神滅世 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,199
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900JASXR"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="日本戰鬥陀螺 BX-23 鳳凰飛翼 豪華組 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>日本戰鬥陀螺 BX-23 鳳凰飛翼 豪華組 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,250
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900H1U0K"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Beyblade X 戰鬥陀螺X 龍王閃擊 CX-13天堂日輪BX-50 騎士堡壘 含發射器(美版)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Beyblade X 戰鬥陀螺X 龍王閃擊 CX-13天堂日輪BX-50 騎士堡壘 含發射器(美版)</h2>
+
+                <div class="price">
+                    NT$1,290
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KHE4F"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-13 龍王閃擊 附發射器 BB09725"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-13 龍王閃擊 附發射器 BB09725</h2>
+
+                <div class="price">
+                    NT$1,299
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K2DX9"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="日本 戰鬥陀螺 UX-01 蒼龍爆刃 BB91447 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>日本 戰鬥陀螺 UX-01 蒼龍爆刃 BB91447 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,299
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900HGAFK"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="日本 戰鬥陀螺UX-03 魔導神杖 BB91449 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>日本 戰鬥陀螺UX-03 魔導神杖 BB91449 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,299
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900HGAGM"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 CX-18 腕龍鞭打 三色隨機版 超高續航 持久型 台灣代理版"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 CX-18 腕龍鞭打 三色隨機版 超高續航 持久型 台灣代理版</h2>
+
+                <div class="price">
+                    NT$1,599
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KHLGX"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="EYBLADE X 戰鬥陀螺 CX-19 鱷魚戰輪 隨機強化組"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>EYBLADE X 戰鬥陀螺 CX-19 鱷魚戰輪 隨機強化組</h2>
+
+                <div class="price">
+                    NT$1,599
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KIW4T"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 BX00 暴風天馬3 7-70RA 右旋 BXG-47 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 BX00 暴風天馬3 7-70RA 右旋 BXG-47 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,599
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K8AQY"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-19 子彈獅鷲 H 台灣版 麗嬰代理 附 QRCODE BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-19 子彈獅鷲 H 台灣版 麗嬰代理 附 QRCODE BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,650
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K7V73"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARATOMY BEYBLADE X 戰鬥陀螺X BX-35 隨機強貨組 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARATOMY BEYBLADE X 戰鬥陀螺X BX-35 隨機強貨組 陀螺</h2>
+
+                <div class="price">
+                    NT$1,690
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:11:03
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5JPP"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-20 榮耀武神LF 右旋 BEYBLADE X 台灣版 麗嬰代理"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-20 榮耀武神LF 右旋 BEYBLADE X 台灣版 麗嬰代理</h2>
+
+                <div class="price">
+                    NT$1,699
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900K8AYJ"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Beyblade X 隕星龍騎士 UX-17 系列 美版3-70J 附拉繩發射器"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Beyblade X 隕星龍騎士 UX-17 系列 美版3-70J 附拉繩發射器</h2>
+
+                <div class="price">
+                    NT$1,799
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KCF5L"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="美國進口 Beyblade X 英勇野牛 蠻牛 UX FB附發射器 Valor Bison"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>美國進口 Beyblade X 英勇野牛 蠻牛 UX FB附發射器 Valor Bison</h2>
+
+                <div class="price">
+                    NT$1,888
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KI3TN"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade 戰鬥陀螺 BX-52 光澤青龍 6-60LC 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade 戰鬥陀螺 BX-52 光澤青龍 6-60LC 陀螺</h2>
+
+                <div class="price">
+                    NT$1,890
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900KKW4L"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺X CX-00 Starter 迪卡狂怒 FT3-60T BXG-70 超人力霸王 聯名款陀螺 BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺X CX-00 Starter 迪卡狂怒 FT3-60T BXG-70 超人力霸王 聯名款陀螺 BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$1,890
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KHY65"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-00 迪卡狂怒FT3-60T BXG-70 台版 麗嬰代理"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-00 迪卡狂怒FT3-60T BXG-70 台版 麗嬰代理</h2>
+
+                <div class="price">
+                    NT$1,899
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KFZPJ"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-21 惡魔幽冥改造組 BEYBLADE X 台版附QRCODE"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-21 惡魔幽冥改造組 BEYBLADE X 台版附QRCODE</h2>
+
+                <div class="price">
+                    NT$1,899
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KD01F"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-22 蒼龍神劍 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-22 蒼龍神劍 陀螺</h2>
+
+                <div class="price">
+                    NT$1,980
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K53CV"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-21三陀螺套裝 地獄鏈甲組合 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>Takara Tomy Beyblade X 戰鬥陀螺 X 世代 BX-21三陀螺套裝 地獄鏈甲組合 陀螺</h2>
+
+                <div class="price">
+                    NT$1,990
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5JOX"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺X UX-03 魔導神杖 5-70DB 日版 UX-03"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺X UX-03 魔導神杖 5-70DB 日版 UX-03</h2>
+
+                <div class="price">
+                    NT$2,222
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DXAX9O-A900KG603"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARA TOMY BEYBLADE X 戰鬥陀螺X BX-10 極限衝擊戰鬥盤 戰鬥陀螺配件 陀螺 四方型鬥盤"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARA TOMY BEYBLADE X 戰鬥陀螺X BX-10 極限衝擊戰鬥盤 戰鬥陀螺配件 陀螺 四方型鬥盤</h2>
+
+                <div class="price">
+                    NT$2,380
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5JOU"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 CX-16 極限衝擊對戰組C 台灣QR扣"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 CX-16 極限衝擊對戰組C 台灣QR扣</h2>
+
+                <div class="price">
+                    NT$2,499
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KLT20"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺X UX-20 榮耀女武神 LF 入門套組(含發射器) 日版 UX-20"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺X UX-20 榮耀女武神 LF 入門套組(含發射器) 日版 UX-20</h2>
+
+                <div class="price">
+                    NT$2,543
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DXAX9O-A900KD5IK"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="BEYBLADE X 戰鬥陀螺 BX-37 電動雙重極限對戰盤 豪華組 附猛熊利爪"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>BEYBLADE X 戰鬥陀螺 BX-37 電動雙重極限對戰盤 豪華組 附猛熊利爪</h2>
+
+                <div class="price">
+                    NT$2,699
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASSW-A900KLT3Z"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺X UX-21 惡魔幽冥 Z 可變高度套組 UX 系統三入組 日版 UX-21"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺X UX-21 惡魔幽冥 Z 可變高度套組 UX 系統三入組 日版 UX-21</h2>
+
+                <div class="price">
+                    NT$3,184
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DXAX9O-A900KFKEE"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 CX-00 新世紀福音戰士改造組 BXG-57 台版 麗嬰代理"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 CX-00 新世紀福音戰士改造組 BXG-57 台版 麗嬰代理</h2>
+
+                <div class="price">
+                    NT$3,299
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900KFFGB"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 UX-15 鮫鯊狂鱗改造組BEYBLADE X"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 UX-15 鮫鯊狂鱗改造組BEYBLADE X</h2>
+
+                <div class="price">
+                    NT$3,299
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900J5EMM"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="TAKARATOMY BEYBLADE X 戰鬥陀螺 X 世代 BX-37 雙重極限衝擊戰鬥盤 豪華組 電動盤商品 陀螺"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>TAKARATOMY BEYBLADE X 戰鬥陀螺 X 世代 BX-37 雙重極限衝擊戰鬥盤 豪華組 電動盤商品 陀螺</h2>
+
+                <div class="price">
+                    NT$3,380
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DSBE2T-A900K5JPR"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="PChome 24h"
+                     data-name="戰鬥陀螺 BX-37 雙重極限衝擊戰鬥組(附發射器) BB93948 BEYBLADE X 正版公司貨"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">PChome 24h</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺 BX-37 雙重極限衝擊戰鬥組(附發射器) BB93948 BEYBLADE X 正版公司貨</h2>
+
+                <div class="price">
+                    NT$3,599
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://24h.pchome.com.tw/prod/DEASR1-B900I2EIJ"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="【TAKARA TOMY】BEYBLADE X 戰鬥陀螺XUX-20 榮耀武神LF+CX-03 英仙幽冥 總銷量&gt;500 10/31 00:00 開賣 945"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>【TAKARA TOMY】BEYBLADE X 戰鬥陀螺XUX-20 榮耀武神LF+CX-03 英仙幽冥 總銷量&gt;500 10/31 00:00 開賣 945</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15837352"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="主角光環 戰鬥陀螺X 【TAKARA TOMY】戰鬥陀螺X 鳳凰飛翼BX-23 魔導神杖 UX-03 綠鱷魚 隕星龍騎士UX-17含射器一組(美版) 總銷量&gt;100 登記 1,799 (19)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>主角光環 戰鬥陀螺X 【TAKARA TOMY】戰鬥陀螺X 鳳凰飛翼BX-23 魔導神杖 UX-03 綠鱷魚 隕星龍騎士UX-17含射器一組(美版) 總銷量&gt;100 登記 1,799 (19)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15502059"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="互相碰撞戰鬥陀螺 【TAKARA TOMY】戰鬥陀螺 UX-03 魔導神杖5-70DB(台灣公司貨) 登記 1,050 (2)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>互相碰撞戰鬥陀螺 【TAKARA TOMY】戰鬥陀螺 UX-03 魔導神杖5-70DB(台灣公司貨) 登記 1,050 (2)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15793113"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="兩入超值組 戰鬥陀螺(無發射器 【TAKARA TOMY】戰鬥陀螺X UX-03 魔導神杖 5-70DB 鳳凰飛翼BX-23 武士聖劍 BX-45 兩入/單入包裝組(美版) 總銷量&gt;100 登記 1,299 (34)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>兩入超值組 戰鬥陀螺(無發射器 【TAKARA TOMY】戰鬥陀螺X UX-03 魔導神杖 5-70DB 鳳凰飛翼BX-23 武士聖劍 BX-45 兩入/單入包裝組(美版) 總銷量&gt;100 登記 1,299 (34)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15489159"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="右迴旋防禦反擊型陀螺特選 【TAKARA TOMY】戰鬥陀螺 CX-14 騎士堡壘 右迴旋防禦型 BB09726 BEYBLADE X 台灣版 麗嬰代理 登記 1,150 (1)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>右迴旋防禦反擊型陀螺特選 【TAKARA TOMY】戰鬥陀螺 CX-14 騎士堡壘 右迴旋防禦型 BB09726 BEYBLADE X 台灣版 麗嬰代理 登記 1,150 (1)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15770166"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="各種類型戰鬥陀螺 一次滿足 【TAKARA TOMY】戰鬥陀螺X UX-03 魔導神杖 5-70DB 鳳凰飛翼BX-23 鐵壁黃蜂CX00 (美版) 總銷量&gt;100 登記 1,199 (33)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>各種類型戰鬥陀螺 一次滿足 【TAKARA TOMY】戰鬥陀螺X UX-03 魔導神杖 5-70DB 鳳凰飛翼BX-23 鐵壁黃蜂CX00 (美版) 總銷量&gt;100 登記 1,199 (33)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15489157"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="戰鬥陀螺特選 【TAKARA TOMY】戰鬥陀螺 CX-15 邪神狂怒 FE4-55Y 右旋 BEYBLADE X 台灣版 登記 999"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺特選 【TAKARA TOMY】戰鬥陀螺 CX-15 邪神狂怒 FE4-55Y 右旋 BEYBLADE X 台灣版 登記 999</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15750679"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="戰鬥陀螺競技特選 【TAKARA TOMY】戰鬥陀螺 UX-01 蒼龍爆刃 右旋 附發射器 BEYBLADE X 台灣版 折價券 登記 1,599 (1)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>戰鬥陀螺競技特選 【TAKARA TOMY】戰鬥陀螺 UX-01 蒼龍爆刃 右旋 附發射器 BEYBLADE X 台灣版 折價券 登記 1,599 (1)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15757444"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="極致攻擊型陀螺特選 【TAKARA TOMY】戰鬥陀螺 CX-13 龍王閃擊 附發射器 BB09725 BEYBLADE X 台版附QRCODE 登記 1,299 (6)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>極致攻擊型陀螺特選 【TAKARA TOMY】戰鬥陀螺 CX-13 龍王閃擊 附發射器 BB09725 BEYBLADE X 台版附QRCODE 登記 1,299 (6)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15641450"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="滿1件享82折 【TAKARA TOMY】戰鬥陀螺 BX-00 蒼龍神劍 V2 3-60F 攻擊型 BEYBLADE X BXG-49 台版附QRCODE 登記 1,147(售價已折) (4)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>滿1件享82折 【TAKARA TOMY】戰鬥陀螺 BX-00 蒼龍神劍 V2 3-60F 攻擊型 BEYBLADE X BXG-49 台版附QRCODE 登記 1,147(售價已折) (4)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15649308"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="滿1件享82折 【TAKARA TOMY】戰鬥陀螺 CX-00 迪卡狂怒FT3-60T BXG-70 BEYBLADE X 台灣代理版 折價券 登記 1,639(售價已折) (9)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>滿1件享82折 【TAKARA TOMY】戰鬥陀螺 CX-00 迪卡狂怒FT3-60T BXG-70 BEYBLADE X 台灣代理版 折價券 登記 1,639(售價已折) (9)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15695090"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="滿1件享82折 【TAKARA TOMY】戰鬥陀螺 CX-16 極限衝擊對戰組 C BEYBLADE X 台灣版 麗嬰代理 折價券 登記 2,787(售價已折)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>滿1件享82折 【TAKARA TOMY】戰鬥陀螺 CX-16 極限衝擊對戰組 C BEYBLADE X 台灣版 麗嬰代理 折價券 登記 2,787(售價已折)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15745145"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="滿1件享82折 【TAKARA TOMY】戰鬥陀螺 UX-03 魔導神杖 BB91449 BEYBLADE X 台版 登記 1,147(售價已折) (5)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>滿1件享82折 【TAKARA TOMY】戰鬥陀螺 UX-03 魔導神杖 BB91449 BEYBLADE X 台版 登記 1,147(售價已折) (5)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15693800"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="滿1件享82折 【TAKARA TOMY】日本戰鬥陀螺 BX-37 雙重極限衝擊戰鬥組 BB93948(BEYBLADE X 公司貨) 折價券 登記 2,951(售價已折)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>滿1件享82折 【TAKARA TOMY】日本戰鬥陀螺 BX-37 雙重極限衝擊戰鬥組 BB93948(BEYBLADE X 公司貨) 折價券 登記 2,951(售價已折)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15737660"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="滿1件享88折 【TAKARA TOMY】戰鬥陀螺 CX-00 新世紀福音戰士 改造組 BB08568 台版 麗嬰代理BXG-57 總銷量&gt;50 折價券 登記 2,991(售價已折) (10)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>滿1件享88折 【TAKARA TOMY】戰鬥陀螺 CX-00 新世紀福音戰士 改造組 BB08568 台版 麗嬰代理BXG-57 總銷量&gt;50 折價券 登記 2,991(售價已折) (10)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15681245"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+            <article class="product-card"
+                     data-store="momo購物網"
+                     data-name="綠色超帥握把 美版限定色 【TAKARA TOMY】戰鬥陀螺X BX-00 綠鱷魚 Bite Croc 含握把射器一組(美版) 登記 1,699 (1)"
+                     data-available="true">
+
+                <div class="card-top">
+                    <span class="store">momo購物網</span>
+                    <span class="status available">
+                        有貨或可購買
+                    </span>
+                </div>
+
+                <h2>綠色超帥握把 美版限定色 【TAKARA TOMY】戰鬥陀螺X BX-00 綠鱷魚 Bite Croc 含握把射器一組(美版) 登記 1,699 (1)</h2>
+
+                <div class="price">
+                    價格未辨識
+                </div>
+
+                <div class="last-seen">
+                    最後確認：2026-10-29 16:28:30
+                </div>
+
+                <a class="buy-button"
+                   href="https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=15757745"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    前往商品頁
+                </a>
+            </article>
+            
+        </section>
+
+        <div
+            id="emptyMessage"
+            class="empty">
+            沒有符合目前篩選條件的商品。
         </div>
-
-        <div>
-            📡 目前監控：PChome 24h
-        </div>
-
-    </div>
-
-    
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺 BEYBLADE BURST#44 B-44 聖光神鷹
-            </div>
-
-            <div class="price">
-                NT$380
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/QFAS11-A9008Z134"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                UX-исследования 
-            </div>
-
-            <div class="price">
-                NT$430
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DJBQ8S-D900JZSNB"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                BEYBLADE X 戰鬥陀螺 世代 BX-18 X 旋風發射器
-            </div>
-
-            <div class="price">
-                NT$649
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KLU07"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                Beyblade X 戰鬥陀螺X BX-05 魔導幻箭 魔法箭 巫師之箭 4-80O 組裝強化包 (美版)
-            </div>
-
-            <div class="price">
-                NT$728
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900K80FB"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                CX-15 邪神狂怒 FE4-55Y 右旋 BB09615 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$850
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900K2EFJ"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                BEYBLADE X 戰鬥陀螺 BX-29 X發射器改造型握把(白藍)
-            </div>
-
-            <div class="price">
-                NT$899
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KLTDQ"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                BEYBLADE X 戰鬥陀螺 CX-03 英仙幽冥 台灣QR扣
-            </div>
-
-            <div class="price">
-                NT$899
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KLTY3"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺CX-03 英仙幽冥 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$899
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900IM2NZ"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                Beyblade X 戰鬥陀螺X 蒼龍勇氣 魔犬烈焰 赫燃天鳳 雄獅獠牙 霜輝銀狼 含發射器(美版)
-            </div>
-
-            <div class="price">
-                NT$999
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KHE04"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺 CX-02 魔導至尊 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,050
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900ILY9R"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                Beyblade X 戰鬥陀螺X 美杜莎 巨角雄鹿 鐵壁黃蜂 海怪克拉肯 含發射器(美版)
-            </div>
-
-            <div class="price">
-                NT$1,099
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900K8C1Q"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺 UX-17 隕星龍騎士 左迴旋 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,100
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900JN3OH"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                日本 戰鬥陀螺 UX-06 雄獅巔峰 BEYBLADE X BB91460
-            </div>
-
-            <div class="price">
-                NT$1,100
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900HQFMM"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺CX-01 蒼龍勇氣BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,100
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900IM2NA"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺CX-07 天馬爆擊 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,100
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900J40BT"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺UX-08 霜輝銀狼 BB93949 BEYBLADE X 台灣版麗嬰代理
-            </div>
-
-            <div class="price">
-                NT$1,199
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900K5JDP"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺 CX-18-1紫綠色 籤王 腕龍鞭打 Nr軸 確定版強化組 BB09617 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,199
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900KCPVW"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                BEYBLADE X 戰鬥陀螺 UX-13 魔像奇岩 1-60UN 台灣QR扣
-            </div>
-
-            <div class="price">
-                NT$1,199
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KLU1N"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                【CX-3 CX-5 CX-7 CX-9】美國 SilBlade 軟骨超撥水矽膠雨刷
-            </div>
-
-            <div class="price">
-                NT$1,200
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEADQL-A900BCQYX"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                日本戰鬥陀螺 BX-23 鳳凰飛翼 豪華組 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,250
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900H1U0K"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                Beyblade X 戰鬥陀螺X  龍王閃擊 CX-13天堂日輪BX-50 騎士堡壘 含發射器(美版)
-            </div>
-
-            <div class="price">
-                NT$1,290
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KHE4F"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                日本 戰鬥陀螺 UX-01 蒼龍爆刃 BB91447 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,299
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900HGAFK"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺 CX-13 龍王閃擊 附發射器 BB09725
-            </div>
-
-            <div class="price">
-                NT$1,299
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900K2DX9"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                BEYBLADE X 戰鬥陀螺 CX-18 腕龍鞭打 三色隨機版 超高續航 持久型 台灣代理版
-            </div>
-
-            <div class="price">
-                NT$1,599
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KHLGX"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺 UX-19 子彈獅鷲 H 台灣版 麗嬰代理 附 QRCODE BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,650
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASR1-B900K7V73"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                美國進口 Beyblade X  英勇野牛 蠻牛 UX  FB附發射器 Valor Bison
-            </div>
-
-            <div class="price">
-                NT$1,888
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KI3TN"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-        <div class="card">
-            <div class="store">PChome 24h</div>
-
-            <div class="name">
-                戰鬥陀螺X CX-00 Starter 迪卡狂怒 FT3-60T BXG-70 超人力霸王 聯名款陀螺 BEYBLADE X
-            </div>
-
-            <div class="price">
-                NT$1,890
-            </div>
-
-            <a
-                class="buy"
-                href="https://24h.pchome.com.tw/prod/DEASSW-A900KHY65"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        
-
-</div>
-
-<div class="footer">
-    戰鬥陀螺商品資訊僅供快速查詢，
-    實際庫存與價格請以購物網站為準。
-</div>
-
+    </main>
+
+    <footer>
+        本頁由 GitHub Actions 自動更新。
+        商品價格與庫存請以購物網站實際頁面為準。
+    </footer>
+
+    <script>
+        const searchInput =
+            document.getElementById("searchInput");
+
+        const storeFilter =
+            document.getElementById("storeFilter");
+
+        const stockFilter =
+            document.getElementById("stockFilter");
+
+        const cards =
+            Array.from(
+                document.querySelectorAll(
+                    ".product-card"
+                )
+            );
+
+        const emptyMessage =
+            document.getElementById(
+                "emptyMessage"
+            );
+
+        function applyFilters() {
+            const keyword =
+                searchInput.value
+                    .trim()
+                    .toLowerCase();
+
+            const selectedStore =
+                storeFilter.value;
+
+            const selectedStock =
+                stockFilter.value;
+
+            let visibleCount = 0;
+
+            cards.forEach((card) => {
+                const name =
+                    card.dataset.name
+                        .toLowerCase();
+
+                const store =
+                    card.dataset.store;
+
+                const available =
+                    card.dataset.available;
+
+                const keywordMatch =
+                    !keyword
+                    || name.includes(keyword)
+                    || store
+                        .toLowerCase()
+                        .includes(keyword);
+
+                const storeMatch =
+                    !selectedStore
+                    || store === selectedStore;
+
+                const stockMatch =
+                    !selectedStock
+                    || available === selectedStock;
+
+                const visible =
+                    keywordMatch
+                    && storeMatch
+                    && stockMatch;
+
+                card.style.display =
+                    visible
+                    ? "flex"
+                    : "none";
+
+                if (visible) {
+                    visibleCount += 1;
+                }
+            });
+
+            emptyMessage.style.display =
+                visibleCount === 0
+                ? "block"
+                : "none";
+        }
+
+        searchInput.addEventListener(
+            "input",
+            applyFilters
+        );
+
+        storeFilter.addEventListener(
+            "change",
+            applyFilters
+        );
+
+        stockFilter.addEventListener(
+            "change",
+            applyFilters
+        );
+    </script>
 </body>
-
 </html>
