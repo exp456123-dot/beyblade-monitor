@@ -8,75 +8,66 @@ on:
 
 permissions:
   contents: write
-
-concurrency:
-  group: beyblade-monitor
+*concurrency:
+  group: beyblade-mon*tor
   cancel-in-progress: false
 
-jobs:
+j*bs:
   monitor:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu*latest
+    timeout-minutes: 25
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  * steps:
+      - name: Checkout rep*sitory
+        uses: actions/check*ut@v4
         with:
-          fetch-depth: 0
+          fetc*-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Pyt*on
+        uses: actions/setup-pyt*on@v5
         with:
-          python-version: "3.12"
-          cache: pip
+          pyth*n-version: "3.12"
+          cache:*pip
 
-      - name: Install Python packages
+      - name: Install Python *ackages
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          p*thon -m pip install --upgrade pip
+*         pip install -r requiremen*s.txt
 
-      - name: Install Playwright Chromium
+      - name: Install Playw*ight Chromium
         run: |
-          python -m playwright install --with-deps chromium
+     *    python -m playwright install -*with-deps chromium
 
-      - name: Run Beyblade Monitor
+      - name: *un Beyblade Monitor
+        run: |*          python monitor.py
+
+     *- name: Build GitHub Pages data
+  *     run: |
+          python build*pages.py
+
+      - name: Save produ*t status and web data
+        if: *lways()
         run: |
-          python monitor.py
+          i* [ ! -f seen_products.json ]; then*            echo "seen_products.js*n does not exist."
+            exi* 0
+          fi
 
-      - name: Save product status
-        run: |
-          if [ -f seen_products.json ]; then
+          if [ ! -f docs/products.json ]; then
+     *      echo "docs/products.json doe* not exist."
+            exit 0
+  *       fi
 
-            echo "Saving latest product status..."
+          git config us*r.name "github-actions[bot]"
+     *    git config user.email "4189828*+github-actions[bot]@users.noreply*github.com"
 
-            cp seen_products.json /tmp/seen_products.json
+          git add see*_products.json
+          git add d*cs/products.json
+          git add*docs/index.html
 
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-            git fetch origin main
-            git reset --hard origin/main
-
-            cp /tmp/seen_products.json seen_products.json
-
-            git add seen_products.json
-
-            if ! git diff --cached --quiet; then
-
-              git commit -m "Update Beyblade product status"
-
-              git push origin HEAD:main
-
-              echo "Product status updated successfully."
-
-            else
-
-              echo "No product status changes."
-
-            fi
-
+          if ! gi* diff --cached --quiet; then
+     *      git commit -m "Update Beybla*e radar data"
+            git pull --rebase
+            git push
           else
-
-            echo "seen_products.json does not exist."
-
+            echo "No product or web data changes."
           fi
