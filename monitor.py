@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright
 
 
 # ============================================================
-# 基本設定
+# 搜尋設定
 # ============================================================
 
 SEARCH_KEYWORDS = [
@@ -18,7 +18,6 @@ SEARCH_KEYWORDS = [
     "BX-",
 ]
 
-# 真正要找的戰鬥陀螺商品
 PRODUCT_WORDS = [
     "戰鬥陀螺",
     "CX-",
@@ -26,7 +25,6 @@ PRODUCT_WORDS = [
     "BX-",
 ]
 
-# 不要出現在結果裡的商品
 EXCLUDE_WORDS = [
     "二手",
     "中古",
@@ -60,7 +58,6 @@ EXCLUDE_WORDS = [
     "單售零件",
 ]
 
-# 缺貨關鍵字
 UNAVAILABLE_WORDS = [
     "已售完",
     "售完",
@@ -90,7 +87,7 @@ SHOPEE_STORES = [
 
 
 # ============================================================
-# 共用功能
+# 共用文字功能
 # ============================================================
 
 def clean_text(text):
@@ -107,8 +104,9 @@ def parse_price(text):
     patterns = [
         r"NT\$\s*([\d,]+)",
         r"\$\s*([\d,]+)",
-        r"售價\s*([\d,]+)",
-        r"特價\s*([\d,]+)",
+        r"售價\s*[:：]?\s*([\d,]+)",
+        r"特價\s*[:：]?\s*([\d,]+)",
+        r"優惠價\s*[:：]?\s*([\d,]+)",
     ]
 
     for pattern in patterns:
@@ -187,7 +185,15 @@ def normalize_url(base_url, href):
             href,
         )
 
-    return href.split("?")[0]
+    # momo 的商品參數不能移除
+    if "momoshop.com.tw" in href:
+        return href.split("#")[0]
+
+    return (
+        href
+        .split("?")[0]
+        .split("#")[0]
+    )
 
 
 def add_product(
@@ -212,12 +218,13 @@ def print_products(
     products,
 ):
     print()
-    print("=" * 70)
+    print("=" * 72)
     print(f"【{store_name}】")
     print(
-        f"找到 {len(products)} 筆符合條件的戰鬥陀螺商品"
+        f"找到 {len(products)} 筆"
+        "符合條件的戰鬥陀螺商品"
     )
-    print("=" * 70)
+    print("=" * 72)
 
     if not products:
         print("目前沒有取得符合條件的商品。")
@@ -375,6 +382,142 @@ def find_product_name(
 
 
 # ============================================================
+# momo 商品編號與網址
+# ============================================================
+
+async def get_momo_goods_code(link, href):
+    if href:
+        patterns = [
+            r"[?&]i_code=(\d+)",
+            r"[?&]goodsCode=(\d+)",
+            r"[?&]goods_code=(\d+)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(
+                pattern,
+                href,
+                re.IGNORECASE,
+            )
+
+            if match:
+                return match.group(1)
+
+    attributes = [
+        "data-goodscode",
+        "data-goods-code",
+        "data-goodsno",
+        "data-goods-no",
+        "data-icode",
+        "data-i-code",
+    ]
+
+    for attribute in attributes:
+        try:
+            value = await link.get_attribute(
+                attribute
+            )
+
+            if value:
+                number_match = re.search(
+                    r"\d+",
+                    value,
+                )
+
+                if number_match:
+                    return number_match.group(0)
+
+        except Exception:
+            continue
+
+    try:
+        parent = link.locator(
+            "xpath=ancestor::*["
+            "@data-goodscode or "
+            "@data-goods-code or "
+            "@data-goodsno or "
+            "@data-goods-no or "
+            "@data-icode or "
+            "@data-i-code"
+            "][1]"
+        )
+
+        if await parent.count() > 0:
+            for attribute in attributes:
+                value = (
+                    await parent.first.get_attribute(
+                        attribute
+                    )
+                )
+
+                if value:
+                    number_match = re.search(
+                        r"\d+",
+                        value,
+                    )
+
+                    if number_match:
+                        return number_match.group(0)
+
+    except Exception:
+        pass
+
+    try:
+        onclick = await link.get_attribute(
+            "onclick"
+        )
+
+        if onclick:
+            patterns = [
+                r"i_code[=:'\"\s]+(\d+)",
+                r"goodsCode[=:'\"\s]+(\d+)",
+                r"GoodsDetail\.jsp\?i_code=(\d+)",
+            ]
+
+            for pattern in patterns:
+                match = re.search(
+                    pattern,
+                    onclick,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    return match.group(1)
+
+    except Exception:
+        pass
+
+    return None
+
+
+def build_momo_url(href, goods_code):
+    if goods_code:
+        return (
+            "https://www.momoshop.com.tw/"
+            "goods/GoodsDetail.jsp"
+            f"?i_code={goods_code}"
+        )
+
+    product_url = normalize_url(
+        "https://www.momoshop.com.tw",
+        href,
+    )
+
+    # 沒有商品編號的通用頁不輸出
+    if (
+        product_url.endswith(
+            "GoodsDetail.jsp"
+        )
+        or product_url.endswith(
+            "GoodsDetail.jsp?"
+        )
+    ):
+        return ""
+
+    return product_url
+
+
+# ============================================================
 # momo Funbox
 # ============================================================
 
@@ -420,9 +563,12 @@ async def search_momo_funbox(browser):
             )
 
             links = page.locator(
-                'a[href*="goods.momo"], '
+                'a[href*="GoodsDetail"], '
                 'a[href*="/goods/"], '
-                'a[href*="GoodsDetail"]'
+                'a[href*="goods.momo"], '
+                'a[data-goodscode], '
+                'a[data-goods-code], '
+                'a[data-goodsno]'
             )
 
             link_count = await links.count()
@@ -433,7 +579,7 @@ async def search_momo_funbox(browser):
             )
 
             for index in range(
-                min(link_count, 150)
+                min(link_count, 200)
             ):
                 if (
                     len(products)
@@ -450,13 +596,20 @@ async def search_momo_funbox(browser):
                         )
                     )
 
-                    if not href:
-                        continue
-
-                    product_url = normalize_url(
-                        "https://www.momoshop.com.tw",
-                        href,
+                    goods_code = (
+                        await get_momo_goods_code(
+                            link,
+                            href,
+                        )
                     )
+
+                    product_url = build_momo_url(
+                        href,
+                        goods_code,
+                    )
+
+                    if not product_url:
+                        continue
 
                     if product_url in seen_urls:
                         continue
@@ -538,6 +691,13 @@ async def search_eslite(browser):
 
     products = []
     seen_urls = set()
+
+    eslite_required_words = [
+        "戰鬥陀螺",
+        "CX-",
+        "UX-",
+        "BX-",
+    ]
 
     for keyword in SEARCH_KEYWORDS:
         page = await create_page(browser)
@@ -633,15 +793,6 @@ async def search_eslite(browser):
 
                     if not name:
                         continue
-
-                    # 誠品特別限制：
-                    # 必須含中文戰鬥陀螺或正式產品型號。
-                    eslite_required_words = [
-                        "戰鬥陀螺",
-                        "CX-",
-                        "UX-",
-                        "BX-",
-                    ]
 
                     has_toy_code = any(
                         word.upper()
@@ -862,13 +1013,13 @@ async def search_shopee_store(
 # ============================================================
 
 async def main():
-    print("=" * 70)
+    print("=" * 72)
     print("戰鬥陀螺指定賣場搜尋器")
     print(
         "檢查時間：",
         datetime.now(),
     )
-    print("=" * 70)
+    print("=" * 72)
 
     print()
     print("搜尋範圍：")
@@ -881,6 +1032,10 @@ async def main():
         "PChome 及其他賣場"
         "不在搜尋範圍內。"
     )
+
+    momo_products = []
+    eslite_products = []
+    shopee_results = {}
 
     async with async_playwright() as playwright:
         browser = (
@@ -907,8 +1062,6 @@ async def main():
                     browser
                 )
             )
-
-            shopee_results = {}
 
             for store in SHOPEE_STORES:
                 products = (
@@ -939,7 +1092,6 @@ async def main():
         store_name,
         products,
     ) in shopee_results.items():
-
         print_products(
             store_name,
             products,
@@ -956,7 +1108,7 @@ async def main():
     )
 
     print()
-    print("=" * 70)
+    print("=" * 72)
 
     print(
         "全部指定賣場共找到 "
@@ -964,7 +1116,7 @@ async def main():
     )
 
     print("搜尋完成")
-    print("=" * 70)
+    print("=" * 72)
 
 
 if __name__ == "__main__":
