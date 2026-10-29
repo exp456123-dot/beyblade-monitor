@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 from datetime import datetime
 from urllib.parse import quote, urljoin
@@ -19,6 +20,7 @@ SEARCH_KEYWORDS = [
 ]
 
 PRODUCT_WORDS = [
+    "BEYBLADE X",
     "戰鬥陀螺",
     "CX-",
     "UX-",
@@ -81,16 +83,28 @@ AVAILABLE_WORDS = [
     "我要購買",
 ]
 
+PRICE_IGNORE_WORDS = [
+    "分期",
+    "每期",
+    "折價券",
+    "折扣碼",
+    "折抵",
+    "運費",
+    "回饋",
+    "購物金",
+    "紅利",
+    "點數",
+    "最高折",
+    "現省",
+    "滿額",
+    "加購",
+]
+
 MIN_PRICE = 100
 MAX_PRICE = 5000
 
-# 搜尋頁最多保留多少筆候選商品
 MAX_CANDIDATES_PER_STORE = 30
-
-# 商品詳情頁同時檢查數量
 DETAIL_CONCURRENCY = 4
-
-# 商品詳情頁載入上限
 DETAIL_TIMEOUT_MS = 30000
 
 SHOPEE_STORES = [
@@ -106,30 +120,70 @@ SHOPEE_STORES = [
 
 
 # ============================================================
-# 共用文字功能
+# 共用文字與價格功能
 # ============================================================
 
 def clean_text(text):
     if not text:
         return ""
 
-    return re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", str(text)).strip()
 
 
-def parse_price(text):
-    if not text:
+def is_valid_price(price):
+    return (
+        isinstance(price, int)
+        and MIN_PRICE <= price <= MAX_PRICE
+    )
+
+
+def parse_numeric_price(value):
+    if value is None:
         return None
 
+    text = str(value).strip()
+
+    match = re.search(
+        r"([\d,]+(?:\.\d+)?)",
+        text,
+    )
+
+    if not match:
+        return None
+
+    try:
+        price = int(
+            float(
+                match.group(1).replace(",", "")
+            )
+        )
+
+        if is_valid_price(price):
+            return price
+
+    except (ValueError, TypeError):
+        pass
+
+    return None
+
+
+def extract_prices(text):
+    if not text:
+        return []
+
+    text = clean_text(text)
+
     patterns = [
+        r"優惠價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
+        r"促銷價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
+        r"特價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
+        r"網路價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
+        r"會員價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
+        r"售價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
+        r"商品價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
         r"NT\$\s*([\d,]+)",
         r"NTD\s*([\d,]+)",
         r"\$\s*([\d,]+)",
-        r"售價\s*[:：]?\s*([\d,]+)",
-        r"特價\s*[:：]?\s*([\d,]+)",
-        r"優惠價\s*[:：]?\s*([\d,]+)",
-        r"網路價\s*[:：]?\s*([\d,]+)",
-        r"促銷價\s*[:：]?\s*([\d,]+)",
-        r"會員價\s*[:：]?\s*([\d,]+)",
     ]
 
     prices = []
@@ -147,45 +201,26 @@ def parse_price(text):
                     match.replace(",", "")
                 )
 
-                if MIN_PRICE <= price <= MAX_PRICE:
+                if is_valid_price(price):
                     prices.append(price)
 
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
+
+    return list(dict.fromkeys(prices))
+
+
+def parse_price(text):
+    """
+    只適合讀取單一價格元件或商品卡片。
+    不要用來掃描整個商品頁 body。
+    """
+    prices = extract_prices(text)
 
     if not prices:
         return None
 
-    # 當頁面同時顯示原價和優惠價時，優先採用最低有效價格
-    return min(prices)
-
-
-def parse_numeric_price(value):
-    if not value:
-        return None
-
-    match = re.search(
-        r"([\d,]+(?:\.\d+)?)",
-        str(value),
-    )
-
-    if not match:
-        return None
-
-    try:
-        price = int(
-            float(
-                match.group(1).replace(",", "")
-            )
-        )
-
-        if MIN_PRICE <= price <= MAX_PRICE:
-            return price
-
-    except ValueError:
-        pass
-
-    return None
+    return prices[0]
 
 
 def is_beyblade_product(name, full_text=""):
@@ -250,7 +285,6 @@ def normalize_url(base_url, href):
             href,
         )
 
-    # momo 商品編號位於網址參數中，不可移除
     if "momoshop.com.tw" in href:
         return href.split("#")[0]
 
@@ -310,6 +344,15 @@ def print_products(
             print(
                 f"   價格：NT${price:,}"
             )
+
+            price_source = product.get(
+                "price_source"
+            )
+
+            if price_source:
+                print(
+                    f"   價格來源：{price_source}"
+                )
         else:
             print("   價格：商品頁未能辨識")
 
@@ -414,21 +457,29 @@ def find_product_name(
 
     possible_lines = []
 
-    for line in card_text.splitlines():
+    raw_lines = re.split(
+        r"[\r\n]+",
+        str(card_text),
+    )
+
+    for line in raw_lines:
         line = clean_text(line)
 
         if len(line) < 5:
             continue
 
         if re.fullmatch(
-            r"(?:NT\$|\$)?\s*[\d,]+(?:元)?",
+            r"(?:NT\$|NTD|\$)?\s*[\d,]+(?:元)?",
             line,
+            re.IGNORECASE,
         ):
             continue
 
         if line in [
             "加入購物車",
+            "放入購物車",
             "立即購買",
+            "直接購買",
             "查看商品",
             "查看更多",
         ]:
@@ -446,49 +497,205 @@ def find_product_name(
 
 
 # ============================================================
-# 詳情頁價格與庫存讀取
+# JSON-LD 價格讀取
+# ============================================================
+
+def find_json_prices(data):
+    results = []
+
+    if isinstance(data, dict):
+        data_type = data.get("@type", "")
+
+        if isinstance(data_type, list):
+            type_names = [
+                str(item).lower()
+                for item in data_type
+            ]
+        else:
+            type_names = [
+                str(data_type).lower()
+            ]
+
+        is_product_or_offer = any(
+            item in [
+                "offer",
+                "aggregateoffer",
+                "product",
+            ]
+            for item in type_names
+        )
+
+        if is_product_or_offer:
+            for key in [
+                "price",
+                "lowPrice",
+                "salePrice",
+            ]:
+                price = parse_numeric_price(
+                    data.get(key)
+                )
+
+                if price is not None:
+                    results.append(price)
+
+        price_specification = data.get(
+            "priceSpecification"
+        )
+
+        if isinstance(
+            price_specification,
+            dict,
+        ):
+            price = parse_numeric_price(
+                price_specification.get("price")
+            )
+
+            if price is not None:
+                results.append(price)
+
+        offers = data.get("offers")
+
+        if offers is not None:
+            results.extend(
+                find_json_prices(offers)
+            )
+
+        for key, value in data.items():
+            if key in [
+                "offers",
+                "priceSpecification",
+            ]:
+                continue
+
+            if isinstance(
+                value,
+                (dict, list),
+            ):
+                results.extend(
+                    find_json_prices(value)
+                )
+
+    elif isinstance(data, list):
+        for item in data:
+            results.extend(
+                find_json_prices(item)
+            )
+
+    return results
+
+
+async def read_json_ld_price(page):
+    scripts = page.locator(
+        'script[type="application/ld+json"]'
+    )
+
+    try:
+        count = min(
+            await scripts.count(),
+            20,
+        )
+    except Exception:
+        return None
+
+    all_prices = []
+
+    for index in range(count):
+        try:
+            raw_text = await scripts.nth(
+                index
+            ).text_content()
+
+            if not raw_text:
+                continue
+
+            raw_text = raw_text.strip()
+
+            if raw_text.startswith("<!--"):
+                raw_text = raw_text.replace(
+                    "<!--",
+                    "",
+                    1,
+                )
+
+            if raw_text.endswith("-->"):
+                raw_text = raw_text[:-3]
+
+            data = json.loads(
+                raw_text.strip()
+            )
+
+            all_prices.extend(
+                find_json_prices(data)
+            )
+
+        except (
+            json.JSONDecodeError,
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        except Exception:
+            continue
+
+    valid_prices = [
+        price
+        for price in all_prices
+        if is_valid_price(price)
+    ]
+
+    if not valid_prices:
+        return None
+
+    return min(valid_prices)
+
+
+# ============================================================
+# Meta 與價格元件讀取
 # ============================================================
 
 async def read_meta_price(page):
     meta_selectors = [
         'meta[property="product:price:amount"]',
         'meta[property="og:price:amount"]',
+        'meta[name="twitter:data1"]',
         'meta[itemprop="price"]',
-        '[itemprop="price"]',
+        '[itemprop="price"][content]',
     ]
 
     for selector in meta_selectors:
         try:
-            element = page.locator(
+            elements = page.locator(
                 selector
-            ).first
-
-            if await element.count() == 0:
-                continue
-
-            value = await element.get_attribute(
-                "content"
             )
 
-            if not value:
-                value = await element.get_attribute(
-                    "value"
-                )
+            count = min(
+                await elements.count(),
+                10,
+            )
 
-            if not value:
-                value = await element.get_attribute(
-                    "data-price"
-                )
+            for index in range(count):
+                element = elements.nth(index)
 
-            if not value:
-                value = clean_text(
-                    await element.inner_text()
-                )
+                values = [
+                    await element.get_attribute(
+                        "content"
+                    ),
+                    await element.get_attribute(
+                        "value"
+                    ),
+                    await element.get_attribute(
+                        "data-price"
+                    ),
+                ]
 
-            price = parse_numeric_price(value)
+                for value in values:
+                    price = parse_numeric_price(
+                        value
+                    )
 
-            if price is not None:
-                return price
+                    if price is not None:
+                        return price
 
         except Exception:
             continue
@@ -502,31 +709,56 @@ async def read_selector_price(
 ):
     for selector in selectors:
         try:
-            locator = page.locator(selector)
+            locator = page.locator(
+                selector
+            )
 
             count = min(
                 await locator.count(),
-                10,
+                20,
             )
 
             for index in range(count):
                 element = locator.nth(index)
 
-                text = clean_text(
+                try:
+                    if not await element.is_visible():
+                        continue
+                except Exception:
+                    continue
+
+                element_text = clean_text(
                     await element.inner_text()
                 )
 
-                price = parse_price(text)
+                if any(
+                    word in element_text
+                    for word in PRICE_IGNORE_WORDS
+                ):
+                    continue
 
-                if price is not None:
-                    return price
+                attribute_values = [
+                    await element.get_attribute(
+                        "content"
+                    ),
+                    await element.get_attribute(
+                        "data-price"
+                    ),
+                    await element.get_attribute(
+                        "value"
+                    ),
+                ]
 
-                content = await element.get_attribute(
-                    "content"
-                )
+                for value in attribute_values:
+                    price = parse_numeric_price(
+                        value
+                    )
 
-                price = parse_numeric_price(
-                    content
+                    if price is not None:
+                        return price
+
+                price = parse_price(
+                    element_text
                 )
 
                 if price is not None:
@@ -536,6 +768,143 @@ async def read_selector_price(
             continue
 
     return None
+
+
+def get_price_selectors(store_name):
+    if store_name == "momo Funbox":
+        return [
+            "#goodsInfo .specialPrice",
+            "#goodsInfo .goodsPrice",
+            "#goodsInfo .priceTxt",
+            "#goodsInfo .prdPrice",
+            "#goodsInfo .price",
+            ".prdnoteArea .specialPrice",
+            ".prdnoteArea .goodsPrice",
+            ".prdnoteArea .price",
+            ".prdnoteArea .money",
+            ".goodsInfoArea .specialPrice",
+            ".goodsInfoArea .goodsPrice",
+            ".goodsInfoArea .price",
+            ".goodsInfoArea .money",
+            ".goodsPrice",
+            ".specialPrice",
+            ".priceTxt",
+            ".prdPrice",
+            '[itemprop="price"]',
+        ]
+
+    if store_name == "誠品線上":
+        return [
+            ".product-detail .sale-price",
+            ".product-detail .discount-price",
+            ".product-detail .product-price",
+            ".product-detail .price",
+            ".product-info .sale-price",
+            ".product-info .discount-price",
+            ".product-info .product-price",
+            ".product-info .price",
+            ".sale-price",
+            ".discount-price",
+            ".product-price",
+            '[itemprop="price"]',
+        ]
+
+    if store_name.startswith("蝦皮"):
+        return [
+            '[data-testid="product-price"]',
+            '[data-testid*="price"]',
+            'main [class*="product"] [class*="price"]',
+            'main [class*="price"]',
+            '[itemprop="price"]',
+        ]
+
+    return [
+        '[itemprop="price"]',
+        '[data-testid*="price"]',
+        'main [class*="price"]',
+    ]
+
+
+# ============================================================
+# 商品頁庫存與價格檢查
+# ============================================================
+
+async def has_available_button(page):
+    button_selectors = [
+        'button:has-text("加入購物車")',
+        'button:has-text("放入購物車")',
+        'button:has-text("立即購買")',
+        'button:has-text("直接購買")',
+        'button:has-text("我要購買")',
+        'a:has-text("加入購物車")',
+        'a:has-text("放入購物車")',
+        'a:has-text("立即購買")',
+        'a:has-text("直接購買")',
+        'a:has-text("我要購買")',
+    ]
+
+    for selector in button_selectors:
+        try:
+            buttons = page.locator(
+                selector
+            )
+
+            count = min(
+                await buttons.count(),
+                20,
+            )
+
+            for index in range(count):
+                button = buttons.nth(index)
+
+                try:
+                    if not await button.is_visible():
+                        continue
+
+                    disabled = (
+                        await button.get_attribute(
+                            "disabled"
+                        )
+                    )
+
+                    aria_disabled = (
+                        await button.get_attribute(
+                            "aria-disabled"
+                        )
+                    )
+
+                    class_name = (
+                        await button.get_attribute(
+                            "class"
+                        )
+                        or ""
+                    )
+
+                    if disabled is not None:
+                        continue
+
+                    if (
+                        aria_disabled
+                        and aria_disabled.lower()
+                        == "true"
+                    ):
+                        continue
+
+                    if (
+                        "disabled"
+                        in class_name.lower()
+                    ):
+                        continue
+
+                    return True
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    return False
 
 
 async def inspect_product_page(
@@ -557,7 +926,6 @@ async def inspect_product_page(
                 3500
             )
 
-            # 稍微捲動，觸發延遲載入的價格與購物按鈕
             await page.mouse.wheel(
                 0,
                 500,
@@ -582,104 +950,83 @@ async def inspect_product_page(
                 )
                 return None
 
-            available = contains_available_word(
-                body_text
-            )
-
-            # 搜尋商品頁上的可用購物按鈕
-            button_selectors = [
-                'button:has-text("加入購物車")',
-                'button:has-text("放入購物車")',
-                'button:has-text("立即購買")',
-                'a:has-text("加入購物車")',
-                'a:has-text("立即購買")',
-            ]
-
-            for selector in button_selectors:
-                try:
-                    buttons = page.locator(
-                        selector
-                    )
-
-                    count = await buttons.count()
-
-                    for index in range(count):
-                        button = buttons.nth(index)
-
-                        if (
-                            await button.is_visible()
-                            and await button.is_enabled()
-                        ):
-                            available = True
-                            break
-
-                    if available:
-                        break
-
-                except Exception:
-                    continue
-
-            price = await read_meta_price(
+            available = await has_available_button(
                 page
             )
 
+            if not available:
+                print(
+                    "未確認可用購物按鈕："
+                    f"{candidate['name']}"
+                )
+                return None
+
+            price = None
+            price_source = ""
+
+            # 第一順位：JSON-LD 結構化資料
+            price = await read_json_ld_price(
+                page
+            )
+
+            if price is not None:
+                price_source = "JSON-LD"
+
+            # 第二順位：商品價格 Meta
             if price is None:
-                if candidate["store"] == "momo Funbox":
-                    price_selectors = [
-                        ".price",
-                        ".money",
-                        ".specialPrice",
-                        ".goodsPrice",
-                        ".priceTxt",
-                        ".prdPrice",
-                        '[class*="price"]',
-                        '[id*="price"]',
-                    ]
+                price = await read_meta_price(
+                    page
+                )
 
-                elif candidate["store"] == "誠品線上":
-                    price_selectors = [
-                        ".price",
-                        ".sale-price",
-                        ".product-price",
-                        ".discount-price",
-                        '[class*="price"]',
-                        '[id*="price"]',
-                    ]
+                if price is not None:
+                    price_source = "Meta"
 
-                else:
-                    price_selectors = [
-                        '[class*="price"]',
-                        '[id*="price"]',
-                    ]
+            # 第三順位：商品頁主價格元件
+            if price is None:
+                price_selectors = (
+                    get_price_selectors(
+                        candidate["store"]
+                    )
+                )
 
                 price = await read_selector_price(
                     page,
                     price_selectors,
                 )
 
+                if price is not None:
+                    price_source = "商品價格元件"
+
+            # 最後才使用搜尋結果卡片價格
             if price is None:
-                price = parse_price(
-                    body_text
+                candidate_price = candidate.get(
+                    "price"
                 )
 
-            # 必須有可購買按鈕才視為開賣。
-            # 價格讀不到時仍保留，避免漏掉已上架商品。
-            if not available:
-                print(
-                    "未確認購物按鈕："
-                    f"{candidate['name']}"
-                )
-                return None
+                if is_valid_price(
+                    candidate_price
+                ):
+                    price = candidate_price
+                    price_source = "搜尋結果卡片"
 
             result = candidate.copy()
             result["price"] = price
             result["available"] = True
+            result["price_source"] = price_source
 
-            print(
-                "確認可購買："
-                f"{candidate['name']}"
-                f" / 價格：{price}"
-            )
+            if price is not None:
+                print(
+                    "確認可購買："
+                    f"{candidate['name']} / "
+                    f"價格：NT${price:,} / "
+                    f"來源：{price_source}"
+                )
+            else:
+                print(
+                    "確認可購買："
+                    f"{candidate['name']} / "
+                    "價格未能辨識"
+                )
 
             return result
 
@@ -879,6 +1226,12 @@ async def search_momo_funbox(browser):
     seen_urls = set()
 
     for keyword in SEARCH_KEYWORDS:
+        if (
+            len(candidates)
+            >= MAX_CANDIDATES_PER_STORE
+        ):
+            break
+
         page = await create_page(browser)
 
         search_keyword = (
@@ -994,12 +1347,16 @@ async def search_momo_funbox(browser):
                     ):
                         continue
 
+                    card_price = parse_price(
+                        full_text
+                    )
+
                     add_product(
                         candidates,
                         {
                             "store": store_name,
                             "name": name,
-                            "price": None,
+                            "price": card_price,
                             "url": product_url,
                         },
                         seen_urls,
@@ -1046,6 +1403,12 @@ async def search_eslite(browser):
     ]
 
     for keyword in SEARCH_KEYWORDS:
+        if (
+            len(candidates)
+            >= MAX_CANDIDATES_PER_STORE
+        ):
+            break
+
         page = await create_page(browser)
 
         url = (
@@ -1156,12 +1519,16 @@ async def search_eslite(browser):
                     ):
                         continue
 
+                    card_price = parse_price(
+                        full_text
+                    )
+
                     add_product(
                         candidates,
                         {
                             "store": store_name,
                             "name": name,
-                            "price": None,
+                            "price": card_price,
                             "url": product_url,
                         },
                         seen_urls,
@@ -1201,10 +1568,16 @@ async def search_shopee_store(
     store_name = store["store"]
     shop_url = store["shop_url"]
 
-    products = []
+    candidates = []
     seen_urls = set()
 
     for keyword in SEARCH_KEYWORDS:
+        if (
+            len(candidates)
+            >= MAX_CANDIDATES_PER_STORE
+        ):
+            break
+
         page = await create_page(browser)
 
         url = (
@@ -1255,7 +1628,7 @@ async def search_shopee_store(
                 min(link_count, 200)
             ):
                 if (
-                    len(products)
+                    len(candidates)
                     >= MAX_CANDIDATES_PER_STORE
                 ):
                     break
@@ -1313,16 +1686,16 @@ async def search_shopee_store(
                     ):
                         continue
 
-                    price = parse_price(
+                    card_price = parse_price(
                         full_text
                     )
 
                     add_product(
-                        products,
+                        candidates,
                         {
                             "store": store_name,
                             "name": name,
-                            "price": price,
+                            "price": card_price,
                             "url": product_url,
                         },
                         seen_urls,
@@ -1340,7 +1713,15 @@ async def search_shopee_store(
         finally:
             await page.close()
 
-    return products
+    print(
+        f"{store_name} 候選商品："
+        f"{len(candidates)} 筆"
+    )
+
+    return await inspect_candidates(
+        browser,
+        candidates,
+    )
 
 
 # ============================================================
@@ -1352,7 +1733,9 @@ async def main():
     print("戰鬥陀螺指定賣場開賣搜尋器")
     print(
         "檢查時間：",
-        datetime.now(),
+        datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
     )
     print("=" * 76)
 
