@@ -16,7 +16,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -44,21 +44,39 @@ jobs:
           python monitor.py
 
       - name: Save product status
-        if: always()
         run: |
           if [ -f seen_products.json ]; then
+
+            echo "Saving latest product status..."
+
+            cp seen_products.json /tmp/seen_products.json
+
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            cp /tmp/seen_products.json seen_products.json
 
             git add seen_products.json
 
             if ! git diff --cached --quiet; then
+
               git commit -m "Update Beyblade product status"
-              git pull --rebase
-              git push
+
+              git push origin HEAD:main
+
+              echo "Product status updated successfully."
+
             else
+
               echo "No product status changes."
+
             fi
+
           else
+
             echo "seen_products.json does not exist."
+
           fi
