@@ -1,812 +1,678 @@
-import asyncio
-import hashlib
+import urllib.parse
+import urllib.request
 import json
 import os
-from datetime import datetime
-from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from zoneinfo import ZoneInfo
+import smtplib
+from datetime import datetime, timezone, timedelta
+from email.mime.text import MIMEText
+from email.header import Header
 
-from playwright.async_api import async_playwright
 
-from monitor import (
-    SHOPEE_STORES,
-    search_eslite,
-    search_momo_funbox,
-    search_shopee_store,
+# ==========================================================
+# 使用者設定
+# ==========================================================
+
+KEYWORDS = [
+    "BEYBLADE X",
+    "戰鬥陀螺",
+    "CX-",
+    "UX-",
+    "BX-",
+]
+
+MIN_PRICE = 100
+MAX_PRICE = 5000
+
+# 不想收到通知的商品
+EXCLUDE_WORDS = [
+    "二手",
+    "中古",
+    "盜版",
+    "副廠",
+    "貼紙",
+    "收納",
+    "展示盒",
+    "保護套",
+    "漫畫",
+    "電子書",
+    "小說",
+    "童書",
+    "書包",
+    "訂金",
+    "尾款",
+]
+
+STATE_FILE = "seen_products.json"
+
+TAIWAN_TZ = timezone(
+    timedelta(hours=8)
 )
 
 
-# ============================================================
-# 檔案設定
-# ============================================================
+# ==========================================================
+# 基本功能
+# ==========================================================
 
-STATE_FILE = Path("seen_products.json")
-NOTIFICATION_FILE = Path("notification.md")
-RESULT_FILE = Path("latest_products.json")
-SUMMARY_FILE = Path("run_summary.txt")
-
-TIME_ZONE = ZoneInfo("Asia/Taipei")
-
-# 第一次執行時，只建立目前商品基準，不通知。
-# 這可以避免第一次執行就把所有舊商品都建立成 Issue。
-NOTIFY_ON_FIRST_RUN = False
-
-# 已消失的商品保留幾天紀錄。
-# 保留紀錄可避免舊商品短暫下架後再次出現時重複通知。
-KEEP_HISTORY_DAYS = 180
+def now():
+    return datetime.now(
+        TAIWAN_TZ
+    ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ============================================================
-# 共用功能
-# ============================================================
+def product_allowed(name, price):
+    upper_name = name.upper()
 
-def taipei_now():
-    return datetime.now(TIME_ZONE)
+    # 排除不要的商品
+    for word in EXCLUDE_WORDS:
+        if word.upper() in upper_name:
+            return False
 
+    target_words = [
+        "BEYBLADE",
+        "戰鬥陀螺",
+        "CX-",
+        "UX-",
+        "BX-",
+    ]
 
-def clean_text(value):
-    if value is None:
-        return ""
+    # 必須屬於戰鬥陀螺相關商品
+    if not any(
+        word.upper() in upper_name
+        for word in target_words
+    ):
+        return False
 
-    return " ".join(str(value).split()).strip()
+    if price is not None:
+        if price < MIN_PRICE:
+            return False
 
+        if price > MAX_PRICE:
+            return False
 
-def normalize_product_url(url):
-    """
-    清除不影響商品身分的追蹤參數。
-
-    momo 的 i_code 必須保留。
-    蝦皮網址通常利用 shopid、itemid 或網址本身辨識商品。
-    """
-    if not url:
-        return ""
-
-    url = url.strip()
-
-    try:
-        parts = urlsplit(url)
-
-        query_items = parse_qsl(
-            parts.query,
-            keep_blank_values=True,
-        )
-
-        keep_parameters = {
-            "i_code",
-            "goodsCode",
-            "goods_code",
-            "itemid",
-            "shopid",
-        }
-
-        filtered_query = [
-            (key, value)
-            for key, value in query_items
-            if key in keep_parameters
-        ]
-
-        normalized_query = urlencode(
-            filtered_query
-        )
-
-        return urlunsplit(
-            (
-                parts.scheme.lower(),
-                parts.netloc.lower(),
-                parts.path.rstrip("/"),
-                normalized_query,
-                "",
-            )
-        )
-
-    except Exception:
-        return url.split("#")[0].strip()
+    return True
 
 
-def make_product_id(product):
-    """
-    以賣場和標準化網址建立穩定商品 ID。
-    只有網址相同才會視為同一件商品。
-    """
-    store = clean_text(
-        product.get("store")
-    )
-
-    url = normalize_product_url(
-        product.get("url", "")
-    )
-
-    identity = f"{store}|{url}"
-
-    return hashlib.sha256(
-        identity.encode("utf-8")
-    ).hexdigest()
-
-
-def normalize_product(product):
-    price = product.get("price")
-
-    try:
-        if price is not None:
-            price = int(price)
-    except (ValueError, TypeError):
-        price = None
-
-    return {
-        "id": make_product_id(product),
-        "store": clean_text(
-            product.get("store")
-        ),
-        "name": clean_text(
-            product.get("name")
-        ),
-        "price": price,
-        "price_source": clean_text(
-            product.get("price_source")
-        ),
-        "url": normalize_product_url(
-            product.get("url", "")
-        ),
-        "available": bool(
-            product.get("available", True)
-        ),
-    }
-
-
-def deduplicate_products(products):
-    """
-    同一個商品可能由不同搜尋關鍵字找到，
-    使用商品 ID 移除重複資料。
-    """
-    unique_products = {}
-
-    for product in products:
-        normalized = normalize_product(
-            product
-        )
-
-        if not normalized["url"]:
-            continue
-
-        if not normalized["name"]:
-            continue
-
-        product_id = normalized["id"]
-
-        existing = unique_products.get(
-            product_id
-        )
-
-        if existing is None:
-            unique_products[
-                product_id
-            ] = normalized
-            continue
-
-        # 若後來的資料有正確價格，就補上價格。
-        if (
-            existing.get("price") is None
-            and normalized.get("price")
-            is not None
-        ):
-            unique_products[
-                product_id
-            ] = normalized
-
-    return list(
-        unique_products.values()
-    )
-
+# ==========================================================
+# 讀取過去商品紀錄
+# ==========================================================
 
 def load_state():
-    if not STATE_FILE.exists():
-        return {
-            "initialized": False,
-            "products": {},
-            "last_run": None,
-        }
+    if not os.path.exists(STATE_FILE):
+        return {}
 
     try:
-        data = json.loads(
-            STATE_FILE.read_text(
-                encoding="utf-8"
-            )
-        )
-
-        if not isinstance(data, dict):
-            raise ValueError(
-                "狀態檔案格式錯誤"
-            )
-
-        data.setdefault(
-            "initialized",
-            False,
-        )
-
-        data.setdefault(
-            "products",
-            {},
-        )
-
-        data.setdefault(
-            "last_run",
-            None,
-        )
-
-        return data
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            return json.load(file)
 
     except Exception as error:
         print(
-            "無法讀取 seen_products.json："
-            f"{error}"
+            "⚠️ 無法讀取歷史紀錄：",
+            error,
         )
 
-        print(
-            "為避免大量誤通知，本次視為首次執行。"
-        )
-
-        return {
-            "initialized": False,
-            "products": {},
-            "last_run": None,
-        }
+        return {}
 
 
-def save_json(path, data):
-    path.write_text(
-        json.dumps(
-            data,
+# ==========================================================
+# 儲存商品紀錄
+# ==========================================================
+
+def save_state(state):
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8",
+    ) as file:
+
+        json.dump(
+            state,
+            file,
             ensure_ascii=False,
             indent=2,
         )
-        + "\n",
-        encoding="utf-8",
+
+
+# ==========================================================
+# PChome 搜尋
+# ==========================================================
+
+def search_pchome(keyword):
+    base_url = (
+        "https://ecshweb.pchome.com.tw/"
+        "search/v3.3/all/results"
     )
 
-
-def format_price(price):
-    if price is None:
-        return "商品頁未能辨識"
-
-    return f"NT${price:,}"
-
-
-def github_escape(value):
-    """
-    避免 GitHub Actions 輸出格式受到特殊字元影響。
-    """
-    return (
-        str(value)
-        .replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-    )
-
-
-def write_github_output(
-    has_new_products,
-    issue_title,
-    scan_failed,
-):
-    github_output = os.getenv(
-        "GITHUB_OUTPUT"
-    )
-
-    if not github_output:
-        return
-
-    with open(
-        github_output,
-        "a",
-        encoding="utf-8",
-    ) as file:
-        file.write(
-            "has_new_products="
-            f"{str(has_new_products).lower()}\n"
-        )
-
-        file.write(
-            "issue_title="
-            f"{github_escape(issue_title)}\n"
-        )
-
-        file.write(
-            "scan_failed="
-            f"{str(scan_failed).lower()}\n"
-        )
-
-
-# ============================================================
-# 通知內容
-# ============================================================
-
-def build_notification(
-    new_products,
-    scan_time,
-):
-    lines = [
-        "# 戰鬥陀螺新商品開賣通知",
-        "",
-        (
-            f"檢查時間："
-            f"{scan_time.strftime('%Y-%m-%d %H:%M:%S')}"
-            "（台灣時間）"
-        ),
-        "",
-        (
-            f"本次發現 **{len(new_products)} 筆**"
-            "新的可購買商品。"
-        ),
-        "",
-    ]
-
-    products_by_store = {}
-
-    for product in new_products:
-        store = (
-            product.get("store")
-            or "未知賣場"
-        )
-
-        products_by_store.setdefault(
-            store,
-            [],
-        ).append(product)
-
-    for store_name, store_products in (
-        products_by_store.items()
-    ):
-        lines.extend([
-            f"## {store_name}",
-            "",
-        ])
-
-        for product in store_products:
-            name = product["name"]
-            price_text = format_price(
-                product.get("price")
-            )
-            price_source = (
-                product.get("price_source")
-                or "未提供"
-            )
-            url = product["url"]
-
-            lines.extend([
-                f"### {name}",
-                "",
-                f"- 價格：**{price_text}**",
-                "- 狀態：可購買",
-                (
-                    f"- 價格來源："
-                    f"{price_source}"
-                ),
-                f"- {url}",
-                "",
-            ])
-
-    lines.extend([
-        "---",
-        "",
-        (
-            "這是 GitHub Actions 自動建立的"
-            "戰鬥陀螺商品監測通知。"
-        ),
-        (
-            "同一個商品網址原則上只會通知一次。"
-        ),
-        "",
-        (
-            "商品價格與庫存可能隨時變動，"
-            "請以賣場商品頁顯示為準。"
-        ),
-    ])
-
-    return "\n".join(lines)
-
-
-def build_summary(
-    all_products,
-    new_products,
-    scan_time,
-    initialized_before,
-):
-    store_counts = {}
-
-    for product in all_products:
-        store = product.get(
-            "store",
-            "未知賣場",
-        )
-
-        store_counts[store] = (
-            store_counts.get(store, 0)
-            + 1
-        )
-
-    lines = [
-        "戰鬥陀螺監測執行結果",
-        "=" * 40,
-        (
-            "執行時間："
-            f"{scan_time.strftime('%Y-%m-%d %H:%M:%S')}"
-        ),
-        (
-            "執行模式："
-            + (
-                "正式監測"
-                if initialized_before
-                else "首次建立基準"
-            )
-        ),
-        (
-            f"目前可購買商品："
-            f"{len(all_products)} 筆"
-        ),
-        (
-            f"本次新增商品："
-            f"{len(new_products)} 筆"
-        ),
-        "",
-        "各賣場數量：",
-    ]
-
-    if not store_counts:
-        lines.append(
-            "- 本次沒有確認到可購買商品"
-        )
-    else:
-        for store, count in sorted(
-            store_counts.items()
-        ):
-            lines.append(
-                f"- {store}：{count} 筆"
-            )
-
-    return "\n".join(lines)
-
-
-# ============================================================
-# 更新商品歷史
-# ============================================================
-
-def update_state(
-    old_state,
-    current_products,
-    scan_time,
-):
-    initialized_before = bool(
-        old_state.get("initialized")
-    )
-
-    old_products = old_state.get(
-        "products",
-        {},
-    )
-
-    now_iso = scan_time.isoformat()
-
-    new_products = []
-
-    for product in current_products:
-        product_id = product["id"]
-        previous = old_products.get(
-            product_id
-        )
-
-        if previous is None:
-            if (
-                initialized_before
-                or NOTIFY_ON_FIRST_RUN
-            ):
-                new_products.append(product)
-
-            old_products[product_id] = {
-                **product,
-                "first_seen": now_iso,
-                "last_seen": now_iso,
-                "notified": (
-                    initialized_before
-                    or NOTIFY_ON_FIRST_RUN
-                ),
-            }
-
-        else:
-            first_seen = previous.get(
-                "first_seen",
-                now_iso,
-            )
-
-            notified = bool(
-                previous.get(
-                    "notified",
-                    True,
-                )
-            )
-
-            old_products[product_id] = {
-                **product,
-                "first_seen": first_seen,
-                "last_seen": now_iso,
-                "notified": notified,
-            }
-
-    new_state = {
-        "initialized": True,
-        "last_run": now_iso,
-        "products": old_products,
-    }
-
-    return (
-        new_state,
-        new_products,
-        initialized_before,
-    )
-
-
-# ============================================================
-# 執行所有賣場搜尋
-# ============================================================
-
-async def scan_all_stores():
-    all_products = []
-    failed_stores = []
-
-    async with async_playwright() as playwright:
-        browser = (
-            await playwright.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features="
-                    "AutomationControlled",
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                ],
-            )
-        )
-
-        try:
-            try:
-                momo_products = (
-                    await search_momo_funbox(
-                        browser
-                    )
-                )
-
-                all_products.extend(
-                    momo_products
-                )
-
-            except Exception as error:
-                failed_stores.append(
-                    "momo Funbox"
-                )
-
-                print(
-                    "momo Funbox 執行失敗："
-                    f"{error}"
-                )
-
-            try:
-                eslite_products = (
-                    await search_eslite(
-                        browser
-                    )
-                )
-
-                all_products.extend(
-                    eslite_products
-                )
-
-            except Exception as error:
-                failed_stores.append(
-                    "誠品線上"
-                )
-
-                print(
-                    "誠品線上執行失敗："
-                    f"{error}"
-                )
-
-            for store in SHOPEE_STORES:
-                store_name = store["store"]
-
-                try:
-                    shopee_products = (
-                        await search_shopee_store(
-                            browser,
-                            store,
-                        )
-                    )
-
-                    all_products.extend(
-                        shopee_products
-                    )
-
-                except Exception as error:
-                    failed_stores.append(
-                        store_name
-                    )
-
-                    print(
-                        f"{store_name} 執行失敗："
-                        f"{error}"
-                    )
-
-        finally:
-            await browser.close()
-
-    return (
-        deduplicate_products(
-            all_products
-        ),
-        failed_stores,
-    )
-
-
-# ============================================================
-# 主程式
-# ============================================================
-
-async def main():
-    scan_time = taipei_now()
-
-    print("=" * 76)
-    print("戰鬥陀螺持續監測器")
-    print(
-        "台灣時間："
-        f"{scan_time.strftime('%Y-%m-%d %H:%M:%S')}"
-    )
-    print("=" * 76)
-
-    # 清除上次的通知檔案。
-    # 若本次沒有新商品，就不應保留舊通知。
-    if NOTIFICATION_FILE.exists():
-        NOTIFICATION_FILE.unlink()
-
-    old_state = load_state()
-
-    current_products, failed_stores = (
-        await scan_all_stores()
-    )
-
-    print()
-    print(
-        "本次確認到 "
-        f"{len(current_products)} 筆"
-        "可購買商品。"
-    )
-
-    if failed_stores:
-        print(
-            "本次搜尋失敗的賣場："
-            + "、".join(failed_stores)
-        )
-
-    # 如果所有賣場都失敗，不更新狀態，
-    # 避免錯誤資料覆蓋原本商品歷史。
-    if len(failed_stores) == (
-        2 + len(SHOPEE_STORES)
-    ):
-        message = (
-            "所有賣場搜尋皆失敗，"
-            "本次不更新商品資料。"
-        )
-
-        print(message)
-
-        SUMMARY_FILE.write_text(
-            message + "\n",
-            encoding="utf-8",
-        )
-
-        write_github_output(
-            has_new_products=False,
-            issue_title="",
-            scan_failed=True,
-        )
-
-        raise RuntimeError(message)
-
-    (
-        new_state,
-        new_products,
-        initialized_before,
-    ) = update_state(
-        old_state,
-        current_products,
-        scan_time,
-    )
-
-    save_json(
-        RESULT_FILE,
-        {
-            "scan_time": (
-                scan_time.isoformat()
+    params = urllib.parse.urlencode({
+        "q": keyword,
+        "page": 1,
+        "sort": "sale/dc",
+    })
+
+    url = base_url + "?" + params
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "Chrome/130 Safari/537.36"
             ),
-            "failed_stores": failed_stores,
-            "products": current_products,
+            "Referer": (
+                "https://24h.pchome.com.tw/"
+            ),
         },
     )
 
-    save_json(
-        STATE_FILE,
-        new_state,
+    print()
+    print(
+        "🔎 PChome 搜尋：",
+        keyword,
     )
 
-    summary = build_summary(
-        current_products,
-        new_products,
-        scan_time,
-        initialized_before,
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=30,
+        ) as response:
+
+            data = json.loads(
+                response.read().decode(
+                    "utf-8"
+                )
+            )
+
+    except Exception as error:
+        print(
+            "❌ PChome 搜尋失敗：",
+            error,
+        )
+
+        return []
+
+    products = []
+
+    for item in data.get(
+        "prods",
+        [],
+    ):
+        product_id = item.get("Id")
+
+        name = item.get(
+            "name",
+            "",
+        )
+
+        price = item.get(
+            "price"
+        )
+
+        if not product_id:
+            continue
+
+        try:
+            price = int(price)
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            price = None
+
+        if not product_allowed(
+            name,
+            price,
+        ):
+            continue
+
+        product_url = (
+            "https://24h.pchome.com.tw/"
+            "prod/"
+            + product_id
+        )
+
+        products.append({
+            "store": "PChome 24h",
+            "id": product_id,
+            "name": name,
+            "price": price,
+            "url": product_url,
+        })
+
+    return products
+
+
+# ==========================================================
+# 判斷新品 / 降價
+# ==========================================================
+
+def check_changes(
+    products,
+    old_state,
+):
+    alerts = []
+
+    new_state = {}
+
+    for product in products:
+        product_id = product["id"]
+
+        new_state[product_id] = {
+            "store": product["store"],
+            "name": product["name"],
+            "price": product["price"],
+            "url": product["url"],
+            "last_seen": now(),
+        }
+
+        # 第一次看到這個商品
+        if product_id not in old_state:
+
+            alert = product.copy()
+
+            alert["reason"] = (
+                "🆕 發現新商品"
+            )
+
+            alerts.append(alert)
+
+            continue
+
+        old_price = old_state[
+            product_id
+        ].get("price")
+
+        new_price = product.get(
+            "price"
+        )
+
+        # 如果舊價格或新價格不存在
+        # 就不做價格比較
+        if (
+            old_price is None
+            or new_price is None
+        ):
+            continue
+
+        # 降價
+        if new_price < old_price:
+
+            difference = (
+                old_price
+                - new_price
+            )
+
+            alert = product.copy()
+
+            alert["reason"] = (
+                "💰 商品降價"
+            )
+
+            alert["old_price"] = (
+                old_price
+            )
+
+            alert["difference"] = (
+                difference
+            )
+
+            alerts.append(alert)
+
+    return alerts, new_state
+
+
+# ==========================================================
+# Email 通知
+# ==========================================================
+
+def send_email(alerts):
+    sender = os.environ.get(
+        "EMAIL_SENDER"
     )
 
-    SUMMARY_FILE.write_text(
-        summary + "\n",
-        encoding="utf-8",
+    password = os.environ.get(
+        "EMAIL_PASSWORD"
+    )
+
+    receiver = os.environ.get(
+        "EMAIL_RECEIVER"
+    )
+
+    if not sender:
+        print(
+            "⚠️ EMAIL_SENDER 尚未設定"
+        )
+        return False
+
+    if not password:
+        print(
+            "⚠️ EMAIL_PASSWORD 尚未設定"
+        )
+        return False
+
+    if not receiver:
+        print(
+            "⚠️ EMAIL_RECEIVER 尚未設定"
+        )
+        return False
+
+    body = []
+
+    body.append(
+        "🔥 戰鬥陀螺雷達通知"
+    )
+
+    body.append("")
+    body.append(
+        "檢查時間：" + now()
+    )
+
+    body.append("")
+    body.append(
+        "發現 "
+        + str(len(alerts))
+        + " 個異動"
+    )
+
+    body.append("")
+    body.append(
+        "=" * 50
+    )
+
+    for product in alerts:
+        body.append("")
+        body.append(
+            product["reason"]
+        )
+
+        body.append("")
+        body.append(
+            "🏪 賣場："
+            + product["store"]
+        )
+
+        body.append(
+            "🌀 商品："
+            + product["name"]
+        )
+
+        if product.get(
+            "price"
+        ) is not None:
+
+            body.append(
+                "💰 現價：NT$"
+                + format(
+                    product["price"],
+                    ",",
+                )
+            )
+
+        if product.get(
+            "old_price"
+        ) is not None:
+
+            body.append(
+                "原價：NT$"
+                + format(
+                    product["old_price"],
+                    ",",
+                )
+            )
+
+        if product.get(
+            "difference"
+        ) is not None:
+
+            body.append(
+                "⬇️ 降價：NT$"
+                + format(
+                    product[
+                        "difference"
+                    ],
+                    ",",
+                )
+            )
+
+        body.append(
+            "🔗 購買："
+            + product["url"]
+        )
+
+        body.append("")
+        body.append(
+            "-" * 50
+        )
+
+    message = MIMEText(
+        "\n".join(body),
+        "plain",
+        "utf-8",
+    )
+
+    message["Subject"] = Header(
+        "🔥 戰鬥陀螺發現新品 / 降價",
+        "utf-8",
+    )
+
+    message["From"] = sender
+    message["To"] = receiver
+
+    try:
+        with smtplib.SMTP_SSL(
+            "smtp.gmail.com",
+            465,
+            timeout=30,
+        ) as server:
+
+            server.login(
+                sender,
+                password,
+            )
+
+            server.sendmail(
+                sender,
+                [receiver],
+                message.as_string(),
+            )
+
+        print()
+        print(
+            "📧 Email 通知已寄出"
+        )
+
+        return True
+
+    except Exception as error:
+        print()
+        print(
+            "❌ Email 寄送失敗：",
+            error,
+        )
+
+        return False
+
+
+# ==========================================================
+# 主程式
+# ==========================================================
+
+def main():
+    print(
+        "=" * 60
+    )
+
+    print(
+        "🔥 戰鬥陀螺開賣監控器"
+    )
+
+    print(
+        "🇹🇼 台灣時間：",
+        now(),
+    )
+
+    print(
+        "=" * 60
+    )
+
+    old_state = load_state()
+
+    print(
+        "📚 歷史商品紀錄：",
+        len(old_state),
+        "筆",
+    )
+
+    all_products = {}
+
+    # 搜尋所有關鍵字
+    for keyword in KEYWORDS:
+
+        products = search_pchome(
+            keyword
+        )
+
+        print(
+            "   找到",
+            len(products),
+            "筆符合條件商品",
+        )
+
+        for product in products:
+
+            all_products[
+                product["id"]
+            ] = product
+
+    products = list(
+        all_products.values()
+    )
+
+    # 價格排序
+    products.sort(
+        key=lambda item: (
+            item["price"]
+            if item["price"]
+            is not None
+            else 999999
+        )
     )
 
     print()
-    print(summary)
+    print(
+        "=" * 60
+    )
 
-    if not initialized_before:
-        print()
-        print(
-            "首次執行已完成。"
-            "本次只建立商品基準，"
-            "不會建立通知 Issue。"
-        )
+    print(
+        "📦 本次找到",
+        len(products),
+        "筆不重複商品"
+    )
 
-    if new_products:
-        notification = build_notification(
-            new_products,
-            scan_time,
-        )
+    print(
+        "=" * 60
+    )
 
-        NOTIFICATION_FILE.write_text(
-            notification + "\n",
-            encoding="utf-8",
-        )
-
-        issue_title = (
-            "戰鬥陀螺開賣通知："
-            f"發現 {len(new_products)} 筆新商品 "
-            f"{scan_time.strftime('%m/%d %H:%M')}"
-        )
+    # 顯示商品
+    for product in products:
 
         print()
+
         print(
-            f"發現 {len(new_products)} 筆"
-            "新商品，準備建立通知。"
+            "🌀",
+            product["name"],
         )
 
-        for product in new_products:
+        if product[
+            "price"
+        ] is not None:
+
             print(
-                f"- {product['store']} / "
-                f"{product['name']} / "
-                f"{format_price(product.get('price'))}"
+                "💰 NT$",
+                format(
+                    product["price"],
+                    ",",
+                ),
+                sep="",
             )
 
-        write_github_output(
-            has_new_products=True,
-            issue_title=issue_title,
-            scan_failed=False,
+        print(
+            "🔗",
+            product["url"],
+        )
+
+    # 判斷變化
+    alerts, new_state = (
+        check_changes(
+            products,
+            old_state,
+        )
+    )
+
+    print()
+    print(
+        "=" * 60
+    )
+
+    print(
+        "🚨 本次需要通知：",
+        len(alerts),
+        "筆"
+    )
+
+    # 有異動才寄 Email
+    if alerts:
+
+        for alert in alerts:
+
+            print()
+            print(
+                alert["reason"]
+            )
+
+            print(
+                alert["name"]
+            )
+
+        send_email(
+            alerts[:20]
         )
 
     else:
+
         print()
         print(
-            "本次沒有新增商品，"
-            "不建立通知。"
+            "😴 沒有新品或降價，不寄 Email"
         )
 
-        write_github_output(
-            has_new_products=False,
-            issue_title="",
-            scan_failed=False,
-        )
+    # 更新紀錄
+    save_state(
+        new_state
+    )
+
+    print()
+    print(
+        "💾 商品狀態已儲存"
+    )
+
+    print()
+    print(
+        "=" * 60
+    )
+
+    print(
+        "✅ 本次監控完成"
+    )
+
+    print(
+        "=" * 60
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
