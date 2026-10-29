@@ -67,12 +67,31 @@ UNAVAILABLE_WORDS = [
     "補貨中",
     "可訂購時通知我",
     "貨到通知",
+    "到貨通知",
     "停止銷售",
+    "商品已下架",
+    "暫停販售",
+]
+
+AVAILABLE_WORDS = [
+    "加入購物車",
+    "放入購物車",
+    "立即購買",
+    "直接購買",
+    "我要購買",
 ]
 
 MIN_PRICE = 100
 MAX_PRICE = 5000
-MAX_RESULTS_PER_STORE = 30
+
+# 搜尋頁最多保留多少筆候選商品
+MAX_CANDIDATES_PER_STORE = 30
+
+# 商品詳情頁同時檢查數量
+DETAIL_CONCURRENCY = 4
+
+# 商品詳情頁載入上限
+DETAIL_TIMEOUT_MS = 30000
 
 SHOPEE_STORES = [
     {
@@ -103,11 +122,17 @@ def parse_price(text):
 
     patterns = [
         r"NT\$\s*([\d,]+)",
+        r"NTD\s*([\d,]+)",
         r"\$\s*([\d,]+)",
         r"售價\s*[:：]?\s*([\d,]+)",
         r"特價\s*[:：]?\s*([\d,]+)",
         r"優惠價\s*[:：]?\s*([\d,]+)",
+        r"網路價\s*[:：]?\s*([\d,]+)",
+        r"促銷價\s*[:：]?\s*([\d,]+)",
+        r"會員價\s*[:：]?\s*([\d,]+)",
     ]
+
+    prices = []
 
     for pattern in patterns:
         matches = re.findall(
@@ -123,10 +148,42 @@ def parse_price(text):
                 )
 
                 if MIN_PRICE <= price <= MAX_PRICE:
-                    return price
+                    prices.append(price)
 
             except ValueError:
                 continue
+
+    if not prices:
+        return None
+
+    # 當頁面同時顯示原價和優惠價時，優先採用最低有效價格
+    return min(prices)
+
+
+def parse_numeric_price(value):
+    if not value:
+        return None
+
+    match = re.search(
+        r"([\d,]+(?:\.\d+)?)",
+        str(value),
+    )
+
+    if not match:
+        return None
+
+    try:
+        price = int(
+            float(
+                match.group(1).replace(",", "")
+            )
+        )
+
+        if MIN_PRICE <= price <= MAX_PRICE:
+            return price
+
+    except ValueError:
+        pass
 
     return None
 
@@ -154,14 +211,22 @@ def is_beyblade_product(name, full_text=""):
     )
 
 
-def is_available(full_text):
-    upper_text = full_text.upper()
+def contains_unavailable_word(text):
+    upper_text = clean_text(text).upper()
 
-    for word in UNAVAILABLE_WORDS:
-        if word.upper() in upper_text:
-            return False
+    return any(
+        word.upper() in upper_text
+        for word in UNAVAILABLE_WORDS
+    )
 
-    return True
+
+def contains_available_word(text):
+    upper_text = clean_text(text).upper()
+
+    return any(
+        word.upper() in upper_text
+        for word in AVAILABLE_WORDS
+    )
 
 
 def normalize_url(base_url, href):
@@ -185,7 +250,7 @@ def normalize_url(base_url, href):
             href,
         )
 
-    # momo 的商品參數不能移除
+    # momo 商品編號位於網址參數中，不可移除
     if "momoshop.com.tw" in href:
         return href.split("#")[0]
 
@@ -218,16 +283,16 @@ def print_products(
     products,
 ):
     print()
-    print("=" * 72)
+    print("=" * 76)
     print(f"【{store_name}】")
     print(
         f"找到 {len(products)} 筆"
-        "符合條件的戰鬥陀螺商品"
+        "目前可購買的戰鬥陀螺商品"
     )
-    print("=" * 72)
+    print("=" * 76)
 
     if not products:
-        print("目前沒有取得符合條件的商品。")
+        print("目前沒有確認到可購買的商品。")
         return
 
     for index, product in enumerate(
@@ -246,10 +311,9 @@ def print_products(
                 f"   價格：NT${price:,}"
             )
         else:
-            print(
-                "   價格：搜尋頁未能辨識"
-            )
+            print("   價格：商品頁未能辨識")
 
+        print("   狀態：可購買")
         print(
             f"   連結：{product['url']}"
         )
@@ -295,7 +359,7 @@ async def scroll_page(
         )
 
         await page.wait_for_timeout(
-            1000
+            800
         )
 
 
@@ -382,10 +446,295 @@ def find_product_name(
 
 
 # ============================================================
+# 詳情頁價格與庫存讀取
+# ============================================================
+
+async def read_meta_price(page):
+    meta_selectors = [
+        'meta[property="product:price:amount"]',
+        'meta[property="og:price:amount"]',
+        'meta[itemprop="price"]',
+        '[itemprop="price"]',
+    ]
+
+    for selector in meta_selectors:
+        try:
+            element = page.locator(
+                selector
+            ).first
+
+            if await element.count() == 0:
+                continue
+
+            value = await element.get_attribute(
+                "content"
+            )
+
+            if not value:
+                value = await element.get_attribute(
+                    "value"
+                )
+
+            if not value:
+                value = await element.get_attribute(
+                    "data-price"
+                )
+
+            if not value:
+                value = clean_text(
+                    await element.inner_text()
+                )
+
+            price = parse_numeric_price(value)
+
+            if price is not None:
+                return price
+
+        except Exception:
+            continue
+
+    return None
+
+
+async def read_selector_price(
+    page,
+    selectors,
+):
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+
+            count = min(
+                await locator.count(),
+                10,
+            )
+
+            for index in range(count):
+                element = locator.nth(index)
+
+                text = clean_text(
+                    await element.inner_text()
+                )
+
+                price = parse_price(text)
+
+                if price is not None:
+                    return price
+
+                content = await element.get_attribute(
+                    "content"
+                )
+
+                price = parse_numeric_price(
+                    content
+                )
+
+                if price is not None:
+                    return price
+
+        except Exception:
+            continue
+
+    return None
+
+
+async def inspect_product_page(
+    browser,
+    candidate,
+    semaphore,
+):
+    async with semaphore:
+        page = await create_page(browser)
+
+        try:
+            await page.goto(
+                candidate["url"],
+                wait_until="domcontentloaded",
+                timeout=DETAIL_TIMEOUT_MS,
+            )
+
+            await page.wait_for_timeout(
+                3500
+            )
+
+            # 稍微捲動，觸發延遲載入的價格與購物按鈕
+            await page.mouse.wheel(
+                0,
+                500,
+            )
+
+            await page.wait_for_timeout(
+                1000
+            )
+
+            body_text = clean_text(
+                await page.locator(
+                    "body"
+                ).inner_text()
+            )
+
+            if contains_unavailable_word(
+                body_text
+            ):
+                print(
+                    "缺貨或不可購買："
+                    f"{candidate['name']}"
+                )
+                return None
+
+            available = contains_available_word(
+                body_text
+            )
+
+            # 搜尋商品頁上的可用購物按鈕
+            button_selectors = [
+                'button:has-text("加入購物車")',
+                'button:has-text("放入購物車")',
+                'button:has-text("立即購買")',
+                'a:has-text("加入購物車")',
+                'a:has-text("立即購買")',
+            ]
+
+            for selector in button_selectors:
+                try:
+                    buttons = page.locator(
+                        selector
+                    )
+
+                    count = await buttons.count()
+
+                    for index in range(count):
+                        button = buttons.nth(index)
+
+                        if (
+                            await button.is_visible()
+                            and await button.is_enabled()
+                        ):
+                            available = True
+                            break
+
+                    if available:
+                        break
+
+                except Exception:
+                    continue
+
+            price = await read_meta_price(
+                page
+            )
+
+            if price is None:
+                if candidate["store"] == "momo Funbox":
+                    price_selectors = [
+                        ".price",
+                        ".money",
+                        ".specialPrice",
+                        ".goodsPrice",
+                        ".priceTxt",
+                        ".prdPrice",
+                        '[class*="price"]',
+                        '[id*="price"]',
+                    ]
+
+                elif candidate["store"] == "誠品線上":
+                    price_selectors = [
+                        ".price",
+                        ".sale-price",
+                        ".product-price",
+                        ".discount-price",
+                        '[class*="price"]',
+                        '[id*="price"]',
+                    ]
+
+                else:
+                    price_selectors = [
+                        '[class*="price"]',
+                        '[id*="price"]',
+                    ]
+
+                price = await read_selector_price(
+                    page,
+                    price_selectors,
+                )
+
+            if price is None:
+                price = parse_price(
+                    body_text
+                )
+
+            # 必須有可購買按鈕才視為開賣。
+            # 價格讀不到時仍保留，避免漏掉已上架商品。
+            if not available:
+                print(
+                    "未確認購物按鈕："
+                    f"{candidate['name']}"
+                )
+                return None
+
+            result = candidate.copy()
+            result["price"] = price
+            result["available"] = True
+
+            print(
+                "確認可購買："
+                f"{candidate['name']}"
+                f" / 價格：{price}"
+            )
+
+            return result
+
+        except Exception as error:
+            print(
+                "商品頁檢查失敗："
+                f"{candidate['name']} / "
+                f"{error}"
+            )
+
+            return None
+
+        finally:
+            await page.close()
+
+
+async def inspect_candidates(
+    browser,
+    candidates,
+):
+    semaphore = asyncio.Semaphore(
+        DETAIL_CONCURRENCY
+    )
+
+    tasks = [
+        inspect_product_page(
+            browser,
+            candidate,
+            semaphore,
+        )
+        for candidate in candidates
+    ]
+
+    if not tasks:
+        return []
+
+    results = await asyncio.gather(
+        *tasks
+    )
+
+    return [
+        result
+        for result in results
+        if result is not None
+    ]
+
+
+# ============================================================
 # momo 商品編號與網址
 # ============================================================
 
-async def get_momo_goods_code(link, href):
+async def get_momo_goods_code(
+    link,
+    href,
+):
     if href:
         patterns = [
             r"[?&]i_code=(\d+)",
@@ -419,13 +768,13 @@ async def get_momo_goods_code(link, href):
             )
 
             if value:
-                number_match = re.search(
+                match = re.search(
                     r"\d+",
                     value,
                 )
 
-                if number_match:
-                    return number_match.group(0)
+                if match:
+                    return match.group(0)
 
         except Exception:
             continue
@@ -451,13 +800,13 @@ async def get_momo_goods_code(link, href):
                 )
 
                 if value:
-                    number_match = re.search(
+                    match = re.search(
                         r"\d+",
                         value,
                     )
 
-                    if number_match:
-                        return number_match.group(0)
+                    if match:
+                        return match.group(0)
 
     except Exception:
         pass
@@ -468,13 +817,13 @@ async def get_momo_goods_code(link, href):
         )
 
         if onclick:
-            patterns = [
+            onclick_patterns = [
                 r"i_code[=:'\"\s]+(\d+)",
                 r"goodsCode[=:'\"\s]+(\d+)",
                 r"GoodsDetail\.jsp\?i_code=(\d+)",
             ]
 
-            for pattern in patterns:
+            for pattern in onclick_patterns:
                 match = re.search(
                     pattern,
                     onclick,
@@ -490,7 +839,10 @@ async def get_momo_goods_code(link, href):
     return None
 
 
-def build_momo_url(href, goods_code):
+def build_momo_url(
+    href,
+    goods_code,
+):
     if goods_code:
         return (
             "https://www.momoshop.com.tw/"
@@ -503,7 +855,6 @@ def build_momo_url(href, goods_code):
         href,
     )
 
-    # 沒有商品編號的通用頁不輸出
     if (
         product_url.endswith(
             "GoodsDetail.jsp"
@@ -518,13 +869,13 @@ def build_momo_url(href, goods_code):
 
 
 # ============================================================
-# momo Funbox
+# momo Funbox 搜尋
 # ============================================================
 
 async def search_momo_funbox(browser):
     store_name = "momo Funbox"
 
-    products = []
+    candidates = []
     seen_urls = set()
 
     for keyword in SEARCH_KEYWORDS:
@@ -579,11 +930,11 @@ async def search_momo_funbox(browser):
             )
 
             for index in range(
-                min(link_count, 200)
+                min(link_count, 250)
             ):
                 if (
-                    len(products)
-                    >= MAX_RESULTS_PER_STORE
+                    len(candidates)
+                    >= MAX_CANDIDATES_PER_STORE
                 ):
                     break
 
@@ -643,26 +994,13 @@ async def search_momo_funbox(browser):
                     ):
                         continue
 
-                    if not is_available(
-                        full_text
-                    ):
-                        continue
-
-                    price = parse_price(
-                        full_text
-                    )
-
                     add_product(
-                        products,
+                        candidates,
                         {
-                            "store":
-                                store_name,
-                            "name":
-                                name,
-                            "price":
-                                price,
-                            "url":
-                                product_url,
+                            "store": store_name,
+                            "name": name,
+                            "price": None,
+                            "url": product_url,
                         },
                         seen_urls,
                     )
@@ -679,17 +1017,25 @@ async def search_momo_funbox(browser):
         finally:
             await page.close()
 
-    return products
+    print(
+        f"{store_name} 候選商品："
+        f"{len(candidates)} 筆"
+    )
+
+    return await inspect_candidates(
+        browser,
+        candidates,
+    )
 
 
 # ============================================================
-# 誠品線上
+# 誠品線上搜尋
 # ============================================================
 
 async def search_eslite(browser):
     store_name = "誠品線上"
 
-    products = []
+    candidates = []
     seen_urls = set()
 
     eslite_required_words = [
@@ -743,11 +1089,11 @@ async def search_eslite(browser):
             )
 
             for index in range(
-                min(link_count, 150)
+                min(link_count, 200)
             ):
                 if (
-                    len(products)
-                    >= MAX_RESULTS_PER_STORE
+                    len(candidates)
+                    >= MAX_CANDIDATES_PER_STORE
                 ):
                     break
 
@@ -810,26 +1156,13 @@ async def search_eslite(browser):
                     ):
                         continue
 
-                    if not is_available(
-                        full_text
-                    ):
-                        continue
-
-                    price = parse_price(
-                        full_text
-                    )
-
                     add_product(
-                        products,
+                        candidates,
                         {
-                            "store":
-                                store_name,
-                            "name":
-                                name,
-                            "price":
-                                price,
-                            "url":
-                                product_url,
+                            "store": store_name,
+                            "name": name,
+                            "price": None,
+                            "url": product_url,
                         },
                         seen_urls,
                     )
@@ -846,11 +1179,19 @@ async def search_eslite(browser):
         finally:
             await page.close()
 
-    return products
+    print(
+        f"{store_name} 候選商品："
+        f"{len(candidates)} 筆"
+    )
+
+    return await inspect_candidates(
+        browser,
+        candidates,
+    )
 
 
 # ============================================================
-# 蝦皮指定賣場
+# 蝦皮指定賣場搜尋
 # ============================================================
 
 async def search_shopee_store(
@@ -876,7 +1217,6 @@ async def search_shopee_store(
             f"搜尋 {store_name}："
             f"{keyword}"
         )
-
         print(
             f"指定賣場：{shop_url}"
         )
@@ -916,7 +1256,7 @@ async def search_shopee_store(
             ):
                 if (
                     len(products)
-                    >= MAX_RESULTS_PER_STORE
+                    >= MAX_CANDIDATES_PER_STORE
                 ):
                     break
 
@@ -951,8 +1291,7 @@ async def search_shopee_store(
                     )
 
                     full_text = clean_text(
-                        f"{link_text} "
-                        f"{card_text}"
+                        f"{link_text} {card_text}"
                     )
 
                     name = find_product_name(
@@ -969,7 +1308,7 @@ async def search_shopee_store(
                     ):
                         continue
 
-                    if not is_available(
+                    if contains_unavailable_word(
                         full_text
                     ):
                         continue
@@ -981,14 +1320,10 @@ async def search_shopee_store(
                     add_product(
                         products,
                         {
-                            "store":
-                                store_name,
-                            "name":
-                                name,
-                            "price":
-                                price,
-                            "url":
-                                product_url,
+                            "store": store_name,
+                            "name": name,
+                            "price": price,
+                            "url": product_url,
                         },
                         seen_urls,
                     )
@@ -1013,13 +1348,13 @@ async def search_shopee_store(
 # ============================================================
 
 async def main():
-    print("=" * 72)
-    print("戰鬥陀螺指定賣場搜尋器")
+    print("=" * 76)
+    print("戰鬥陀螺指定賣場開賣搜尋器")
     print(
         "檢查時間：",
         datetime.now(),
     )
-    print("=" * 72)
+    print("=" * 76)
 
     print()
     print("搜尋範圍：")
@@ -1108,15 +1443,13 @@ async def main():
     )
 
     print()
-    print("=" * 72)
-
+    print("=" * 76)
     print(
-        "全部指定賣場共找到 "
-        f"{total} 筆符合條件商品"
+        "全部指定賣場共確認 "
+        f"{total} 筆目前可購買商品"
     )
-
     print("搜尋完成")
-    print("=" * 72)
+    print("=" * 76)
 
 
 if __name__ == "__main__":
