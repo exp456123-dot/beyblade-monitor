@@ -17,6 +17,8 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,16 +31,18 @@ jobs:
       - name: Run Beyblade Monitor
         run: python monitor.py
 
-      - name: Save webpage
+      - name: Save product status
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f seen_products.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add index.html
+            git add seen_products.json
 
-          if ! git diff --cached --quiet; then
-            git commit -m "Update Beyblade radar"
-            git push
-          else
-            echo "No webpage changes."
+            if ! git diff --cached --quiet; then
+              git commit -m "Update Beyblade product status"
+              git push
+            else
+              echo "No product status changes."
+            fi
           fi
