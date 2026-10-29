@@ -488,35 +488,34 @@ async def search_eslite(browser):
                         card_text,
                     )
 
-                    if not name:
-                        continue
+                                    if not name:
+                    continue
 
-                                       if not is_beyblade_product(
-                        name,
-                        full_text,
-                    ):
-                        continue
+                if not is_beyblade_product(
+                    name,
+                    full_text,
+                ):
+                    continue
 
-                    # 誠品只保留有玩具型號或中文品名的商品，
-                    # 避免抓到 Beyblade 英文漫畫。
-                    eslite_required_words = [
-                        "戰鬥陀螺",
-                        "CX-",
-                        "UX-",
-                        "BX-",
-                    ]
+                # 誠品只保留真正的戰鬥陀螺玩具，
+                # 排除 Beyblade 英文漫畫、攻略書等。
+                eslite_required_words = [
+                    "戰鬥陀螺",
+                    "CX-",
+                    "UX-",
+                    "BX-",
+                ]
 
-                    if not any(
-                        word.upper() in full_text.upper()
-                        for word in eslite_required_words
-                    ):
-                        continue
+                if not any(
+                    word.upper() in full_text.upper()
+                    for word in eslite_required_words
+                ):
+                    continue
 
-                    if not is_available(full_text):
-                        continue
+                if not is_available(full_text):
+                    continue
 
-                    price = parse_price(full_text)
-
+                price = parse_price(full_text)
                     add_product(
                         products,
                         {
