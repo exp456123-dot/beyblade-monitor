@@ -4,11 +4,10 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "7,22,37,52 * * * *"
 
 permissions:
   contents: write
-  issues: write
 
 concurrency:
   group: beyblade-monitor
@@ -18,64 +17,28 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 25
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
-      - name: Install Python packages
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Run Beyblade Monitor
+        run: python monitor.py
 
-      - name: Install Chromium
-        run: |
-          playwright install --with-deps chromium
-
-      - name: Run Beyblade monitor
-        id: monitor
-        run: |
-          python monitor.py
-
-      - name: Add result to GitHub Actions summary
-        if: always()
-        run: |
-          if [ -f run_summary.txt ]; then
-            cat run_summary.txt >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "本次沒有產生執行摘要。" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Create notification issue
-        if: steps.monitor.outputs.has_new_products == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_TITLE: ${{ steps.monitor.outputs.issue_title }}
-        run: |
-          gh issue create \
-            --title "$ISSUE_TITLE" \
-            --body-file notification.md
-
-      - name: Save product history
-        if: success()
+      - name: Save webpage
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add seen_products.json
+          git add index.html
 
-          if git diff --cached --quiet; then
-            echo "商品紀錄沒有變更，不需要提交。"
-          else
-            git commit -m "Update monitored Beyblade products [skip ci]"
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Beyblade radar"
             git push
+          else
+            echo "No webpage changes."
           fi
