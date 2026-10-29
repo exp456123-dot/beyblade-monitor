@@ -1,515 +1,81 @@
-import asyncio
-import json
-import re
-from datetime import datetime
-from urllib.parse import quote, urljoin, urlsplit, urlunsplit
-
-from playwright.async_api import async_playwright
-
-SEARCH_KEYWORDS = ["BEYBLADE X", "戰鬥陀螺", "CX-", "UX-", "BX-"]
-PRODUCT_WORDS = ["BEYBLADE X", "戰鬥陀螺", "CX-", "UX-", "BX-"]
-EXCLUDE_WORDS = [
-    "二手", "中古", "盜版", "副廠", "美版", "美國版", "海外直送", "海外賣家",
-    "日版", "日本版", "韓版", "漫畫", "電子書", "小說", "童書", "雜誌", "書籍",
-    "攻略本", "附錄", "ガイド", "GUIDE", "VOL.", "ISBN", "貼紙", "收納盒",
-    "收納包", "展示盒", "保護套", "零件拆賣", "單售零件",
-]
-UNAVAILABLE_WORDS = [
-    "已售完", "售完", "已絕版", "缺貨", "暫無庫存", "補貨中", "可訂購時通知我",
-    "貨到通知", "到貨通知", "停止銷售", "商品已下架", "暫停販售",
-]
-AVAILABLE_WORDS = ["加入購物車", "放入購物車", "立即購買", "直接購買", "我要購買"]
-PRICE_IGNORE_WORDS = ["分期", "每期", "折價券", "折扣碼", "運費", "回饋", "購物金", "紅利", "點數", "現省"]
-MIN_PRICE = 100
-MAX_PRICE = 5000
-MAX_CANDIDATES_PER_STORE = 30
-DETAIL_CONCURRENCY = 4
-DETAIL_TIMEOUT_MS = 30000
-
-SHOPEE_STORES = [
-    {"store": "蝦皮 Funbox", "shop_url": "https://shopee.tw/funbox5120"},
-    {"store": "蝦皮 玩具e哥", "shop_url": "https://shopee.tw/toyego"},
-]
-
-
-def clean_text(text):
-    return re.sub(r"\s+", " ", text or "").strip()
-
-
-def is_valid_price(price):
-    return isinstance(price, int) and MIN_PRICE <= price <= MAX_PRICE
-
-
-def parse_numeric_price(value):
-    if value is None:
-        return None
-    match = re.search(r"([\d,]+(?:\.\d+)?)", str(value))
-    if not match:
-        return None
-    try:
-        price = int(float(match.group(1).replace(",", "")))
-        return price if is_valid_price(price) else None
-    except (ValueError, TypeError):
-        return None
-
-
-def extract_prices(text):
-    if not text:
-        return []
-    patterns = [
-        r"優惠價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"促銷價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"特價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"網路價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"會員價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"售價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"商品價\s*[:：]?\s*(?:NT\$|NTD|\$)?\s*([\d,]+)",
-        r"NT\$\s*([\d,]+)", r"NTD\s*([\d,]+)", r"\$\s*([\d,]+)",
-    ]
-    prices = []
-    for pattern in patterns:
-        for match in re.findall(pattern, clean_text(text), re.IGNORECASE):
-            try:
-                price = int(match.replace(",", ""))
-                if is_valid_price(price) and price not in prices:
-                    prices.append(price)
-            except ValueError:
-                pass
-    return prices
-
-
-def parse_price(text):
-    prices = extract_prices(text)
-    return prices[0] if prices else None
-
-
-def is_beyblade_product(name, full_text=""):
-    combined = clean_text(f"{name} {full_text}").upper()
-    return (
-        any(word.upper() in combined for word in PRODUCT_WORDS)
-        and not any(word.upper() in combined for word in EXCLUDE_WORDS)
-    )
-
-
-def contains_unavailable_word(text):
-    upper = clean_text(text).upper()
-    return any(word.upper() in upper for word in UNAVAILABLE_WORDS)
-
-
-def normalize_url(base_url, href):
-    if not href:
-        return ""
-    absolute = urljoin(base_url, href.strip())
-    parts = urlsplit(absolute)
-    # momo 的 i_code 在 query string，必須保留；其他網站移除追蹤參數。
-    query = parts.query if "momoshop.com.tw" in parts.netloc else ""
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
-
-
-def add_product(products, product, seen_urls):
-    url = product.get("url", "")
-    if url and url not in seen_urls:
-        seen_urls.add(url)
-        products.append(product)
-
-
-def print_products(store_name, products):
-    print("\n" + "=" * 76)
-    print(f"【{store_name}】")
-    print(f"找到 {len(products)} 筆目前可購買的戰鬥陀螺商品")
-    print("=" * 76)
-    if not products:
-        print("目前沒有確認到可購買的商品。")
-        return
-    for index, product in enumerate(products, 1):
-        print(f"\n{index}. {product['name']}")
-        price = product.get("price")
-        print(f"   價格：NT${price:,}" if price is not None else "   價格：商品頁未能辨識")
-        if product.get("price_source"):
-            print(f"   價格來源：{product['price_source']}")
-        print("   狀態：可購買")
-        print(f"   連結：{product['url']}")
-
-
-async def create_page(browser):
-    page = await browser.new_page(
-        viewport={"width": 1440, "height": 1200},
-        locale="zh-TW",
-        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/130.0.0.0 Safari/537.36"),
-    )
-    await page.set_extra_http_headers({"Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"})
-    return page
-
-
-async def scroll_page(page, times=4):
-    for _ in range(times):
-        await page.mouse.wheel(0, 1000)
-        await page.wait_for_timeout(800)
-
-
-async def extract_card_text(link):
-    texts = []
-    try:
-        text = clean_text(await link.inner_text())
-        if text:
-            texts.append(text)
-    except Exception:
-        pass
-    for level in [1, 2, 3, 4]:
-        try:
-            card = link.locator(f"xpath=ancestor::*[{level}]")
-            if await card.count() > 0:
-                text = clean_text(await card.first.inner_text())
-                if text:
-                    texts.append(text)
-        except Exception:
-            pass
-    return max(texts, key=len) if texts else ""
-
-
-def find_product_name(link_text, card_text):
-    link_text = clean_text(link_text)
-    if len(link_text) >= 5:
-        return link_text[:300]
-    candidates = []
-    for line in card_text.splitlines():
-        line = clean_text(line)
-        if len(line) < 5 or re.fullmatch(r"(?:NT\$|\$)?\s*[\d,]+(?:元)?", line):
-            continue
-        if line not in ["加入購物車", "立即購買", "查看商品", "查看更多"]:
-            candidates.append(line)
-    return max(candidates, key=len)[:300] if candidates else ""
-
-
-def find_json_prices(data):
-    results = []
-    if isinstance(data, dict):
-        data_type = data.get("@type", "")
-        types = [str(x).lower() for x in data_type] if isinstance(data_type, list) else [str(data_type).lower()]
-        if any(x in {"offer", "aggregateoffer", "product"} for x in types):
-            for key in ["price", "lowPrice", "salePrice"]:
-                price = parse_numeric_price(data.get(key))
-                if price is not None:
-                    results.append(price)
-        spec = data.get("priceSpecification")
-        if isinstance(spec, dict):
-            price = parse_numeric_price(spec.get("price"))
-            if price is not None:
-                results.append(price)
-        for value in data.values():
-            results.extend(find_json_prices(value))
-    elif isinstance(data, list):
-        for item in data:
-            results.extend(find_json_prices(item))
-    return results
-
-
-async def read_json_ld_price(page):
-    scripts = page.locator('script[type="application/ld+json"]')
-    prices = []
-    for index in range(min(await scripts.count(), 20)):
-        try:
-            raw = (await scripts.nth(index).text_content() or "").strip()
-            if raw:
-                prices.extend(find_json_prices(json.loads(raw)))
-        except Exception:
-            pass
-    prices = [p for p in prices if is_valid_price(p)]
-    return min(prices) if prices else None
-
-
-async def read_meta_price(page):
-    selectors = [
-        'meta[property="product:price:amount"]', 'meta[property="og:price:amount"]',
-        'meta[name="twitter:data1"]', 'meta[itemprop="price"]', '[itemprop="price"][content]',
-    ]
-    for selector in selectors:
-        elements = page.locator(selector)
-        for index in range(min(await elements.count(), 10)):
-            element = elements.nth(index)
-            for attr in ["content", "value", "data-price"]:
-                price = parse_numeric_price(await element.get_attribute(attr))
-                if price is not None:
-                    return price
-    return None
-
-
-async def read_selector_price(page, selectors):
-    for selector in selectors:
-        try:
-            locator = page.locator(selector)
-            for index in range(min(await locator.count(), 20)):
-                element = locator.nth(index)
-                if not await element.is_visible():
-                    continue
-                text = clean_text(await element.inner_text())
-                if any(word in text for word in PRICE_IGNORE_WORDS):
-                    continue
-                for attr in ["content", "data-price", "value"]:
-                    price = parse_numeric_price(await element.get_attribute(attr))
-                    if price is not None:
-                        return price
-                price = parse_price(text)
-                if price is not None:
-                    return price
-        except Exception:
-            pass
-    return None
-
-
-def get_price_selectors(store_name):
-    if store_name == "momo Funbox":
-        return [
-            "#goodsInfo .specialPrice", "#goodsInfo .goodsPrice", "#goodsInfo .price",
-            ".prdnoteArea .price", ".goodsInfoArea .price", ".goodsPrice", ".specialPrice",
-            ".priceTxt", ".prdPrice", '[itemprop="price"]',
-        ]
-    if store_name == "誠品線上":
-        return [
-            ".product-detail .sale-price", ".product-detail .product-price",
-            ".product-info .sale-price", ".product-info .product-price",
-            ".product-price", ".sale-price", ".discount-price", '[itemprop="price"]',
-        ]
-    return [
-        '[data-testid*="price"]', 'main [class*="price"]',
-        '[class*="product"] [class*="price"]', '[itemprop="price"]',
-    ]
-
-
-async def has_enabled_buy_button(page):
-    selectors = []
-    for word in AVAILABLE_WORDS:
-        selectors.extend([f'button:has-text("{word}")', f'a:has-text("{word}")'])
-    for selector in selectors:
-        try:
-            buttons = page.locator(selector)
-            for index in range(min(await buttons.count(), 20)):
-                button = buttons.nth(index)
-                if not await button.is_visible():
-                    continue
-                disabled = await button.get_attribute("disabled")
-                aria_disabled = await button.get_attribute("aria-disabled")
-                class_name = (await button.get_attribute("class") or "").lower()
-                if disabled is None and aria_disabled != "true" and "disabled" not in class_name:
-                    return True
-        except Exception:
-            pass
-    return False
-
-
-async def inspect_product_page(browser, candidate, semaphore):
-    async with semaphore:
-        page = await create_page(browser)
-        try:
-            await page.goto(candidate["url"], wait_until="domcontentloaded", timeout=DETAIL_TIMEOUT_MS)
-            await page.wait_for_timeout(3500)
-            await page.mouse.wheel(0, 500)
-            await page.wait_for_timeout(1000)
-            body_text = clean_text(await page.locator("body").inner_text())
-            if contains_unavailable_word(body_text):
-                print(f"缺貨或不可購買：{candidate['name']}")
-                return None
-            if not await has_enabled_buy_button(page):
-                print(f"未確認可用購物按鈕：{candidate['name']}")
-                return None
-
-            price = await read_json_ld_price(page)
-            source = "JSON-LD" if price is not None else ""
-            if price is None:
-                price = await read_meta_price(page)
-                source = "Meta" if price is not None else ""
-            if price is None:
-                price = await read_selector_price(page, get_price_selectors(candidate["store"]))
-                source = "商品價格元件" if price is not None else ""
-            if price is None and is_valid_price(candidate.get("price")):
-                price = candidate["price"]
-                source = "搜尋結果卡片"
-
-            result = candidate.copy()
-            result.update({"price": price, "available": True, "price_source": source})
-            price_text = f"NT${price:,}" if price is not None else "未能辨識"
-            print(f"確認可購買：{candidate['name']} / 價格：{price_text} / 來源：{source or '無'}")
-            return result
-        except Exception as error:
-            print(f"商品頁檢查失敗：{candidate['name']} / {error}")
-            return None
-        finally:
-            await page.close()
-
-
-async def inspect_candidates(browser, candidates):
-    semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
-    results = await asyncio.gather(*[
-        inspect_product_page(browser, candidate, semaphore) for candidate in candidates
-    ]) if candidates else []
-    return [result for result in results if result is not None]
-
-
-async def get_momo_goods_code(link, href):
-    if href:
-        for pattern in [r"[?&]i_code=(\d+)", r"[?&]goodsCode=(\d+)", r"[?&]goods_code=(\d+)"]:
-            match = re.search(pattern, href, re.IGNORECASE)
-            if match:
-                return match.group(1)
-    attrs = ["data-goodscode", "data-goods-code", "data-goodsno", "data-goods-no", "data-icode", "data-i-code"]
-    for attr in attrs:
-        value = await link.get_attribute(attr)
-        if value and re.search(r"\d+", value):
-            return re.search(r"\d+", value).group(0)
-    try:
-        parent = link.locator("xpath=ancestor::*[@data-goodscode or @data-goods-code or @data-goodsno or @data-goods-no or @data-icode or @data-i-code][1]")
-        if await parent.count() > 0:
-            for attr in attrs:
-                value = await parent.first.get_attribute(attr)
-                if value and re.search(r"\d+", value):
-                    return re.search(r"\d+", value).group(0)
-    except Exception:
-        pass
-    onclick = await link.get_attribute("onclick")
-    if onclick:
-        for pattern in [r"i_code[=:'\"\s]+(\d+)", r"goodsCode[=:'\"\s]+(\d+)", r"GoodsDetail\.jsp\?i_code=(\d+)"]:
-            match = re.search(pattern, onclick, re.IGNORECASE)
-            if match:
-                return match.group(1)
-    return None
-
-
-def build_momo_url(href, goods_code):
-    if goods_code:
-        return f"https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code={goods_code}"
-    url = normalize_url("https://www.momoshop.com.tw", href)
-    return "" if url.rstrip("?").endswith("GoodsDetail.jsp") else url
-
-
-async def collect_candidates(page, selector, base_url, store_name, candidates, seen_urls, momo=False):
-    links = page.locator(selector)
-    count = await links.count()
-    print(f"讀取到 {count} 個可能的商品連結")
-    for index in range(min(count, 250)):
-        if len(candidates) >= MAX_CANDIDATES_PER_STORE:
-            break
-        link = links.nth(index)
-        try:
-            href = await link.get_attribute("href")
-            if momo:
-                code = await get_momo_goods_code(link, href)
-                product_url = build_momo_url(href, code)
-            else:
-                product_url = normalize_url(base_url, href)
-            if not product_url or product_url in seen_urls:
-                continue
-            link_text = clean_text(await link.inner_text())
-            card_text = await extract_card_text(link)
-            full_text = clean_text(f"{link_text} {card_text}")
-            name = find_product_name(link_text, card_text)
-            if not name or not is_beyblade_product(name, full_text) or contains_unavailable_word(full_text):
-                continue
-            add_product(candidates, {
-                "store": store_name, "name": name, "price": parse_price(full_text), "url": product_url,
-            }, seen_urls)
-        except Exception:
-            pass
-
-
-async def search_momo_funbox(browser):
-    store_name = "momo Funbox"
-    candidates, seen_urls = [], set()
-    for keyword in SEARCH_KEYWORDS:
-        page = await create_page(browser)
-        search_keyword = f"Funbox {keyword}"
-        url = f"https://www.momoshop.com.tw/search/searchShop.jsp?keyword={quote(search_keyword)}"
-        print(f"\n搜尋 {store_name}：{search_keyword}")
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(5000)
-            await scroll_page(page)
-            await collect_candidates(
-                page,
-                'a[href*="GoodsDetail"], a[href*="/goods/"], a[href*="goods.momo"], a[data-goodscode], a[data-goods-code], a[data-goodsno]',
-                "https://www.momoshop.com.tw", store_name, candidates, seen_urls, momo=True,
-            )
-        except Exception as error:
-            print(f"{store_name} 搜尋失敗：{error}")
-        finally:
-            await page.close()
-    print(f"{store_name} 候選商品：{len(candidates)} 筆")
-    return await inspect_candidates(browser, candidates)
-
-
-async def search_eslite(browser):
-    store_name = "誠品線上"
-    candidates, seen_urls = [], set()
-    for keyword in SEARCH_KEYWORDS:
-        page = await create_page(browser)
-        url = f"https://www.eslite.com/Search?keyword={quote(keyword)}"
-        print(f"\n搜尋 {store_name}：{keyword}")
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(5000)
-            await scroll_page(page)
-            await collect_candidates(page, 'a[href*="/product/"]', "https://www.eslite.com", store_name, candidates, seen_urls)
-        except Exception as error:
-            print(f"{store_name} 搜尋失敗：{error}")
-        finally:
-            await page.close()
-    print(f"{store_name} 候選商品：{len(candidates)} 筆")
-    return await inspect_candidates(browser, candidates)
-
-
-async def search_shopee_store(browser, store):
-    store_name, shop_url = store["store"], store["shop_url"]
-    candidates, seen_urls = [], set()
-    for keyword in SEARCH_KEYWORDS:
-        page = await create_page(browser)
-        url = f"{shop_url}/search?keyword={quote(keyword)}"
-        print(f"\n搜尋 {store_name}：{keyword}\n指定賣場：{shop_url}")
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(8000)
-            await scroll_page(page, 5)
-            await collect_candidates(page, 'a[href*="-i."], a[href*="/product/"]', "https://shopee.tw", store_name, candidates, seen_urls)
-        except Exception as error:
-            print(f"{store_name} 搜尋失敗：{error}")
-        finally:
-            await page.close()
-    print(f"{store_name} 候選商品：{len(candidates)} 筆")
-    return await inspect_candidates(browser, candidates)
-
-
-async def main():
-    print("=" * 76)
-    print("戰鬥陀螺指定賣場開賣搜尋器")
-    print("檢查時間：", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    print("=" * 76)
-    print("\n搜尋範圍：\n1. momo Funbox\n2. 誠品線上\n3. 蝦皮 Funbox\n4. 蝦皮 玩具e哥")
-    print("\nPChome 及其他賣場不在搜尋範圍內。")
-
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage", "--no-sandbox"],
-        )
-        try:
-            momo_products = await search_momo_funbox(browser)
-            eslite_products = await search_eslite(browser)
-            shopee_results = {}
-            for store in SHOPEE_STORES:
-                shopee_results[store["store"]] = await search_shopee_store(browser, store)
-        finally:
-            await browser.close()
-
-    print_products("momo Funbox", momo_products)
-    print_products("誠品線上", eslite_products)
-    for store_name, products in shopee_results.items():
-        print_products(store_name, products)
-    total = len(momo_products) + len(eslite_products) + sum(len(x) for x in shopee_results.values())
-    print("\n" + "=" * 76)
-    print(f"全部指定賣場共確認 {total} 筆目前可購買商品")
-    print("搜尋完成")
-    print("=" * 76)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+name: Beyblade Monitor
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: beyblade-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Chromium
+        run: |
+          playwright install --with-deps chromium
+
+      - name: Run Beyblade monitor
+        id: monitor
+        run: |
+          python runner.py
+
+      - name: Add result to GitHub Actions summary
+        if: always()
+        run: |
+          if [ -f run_summary.txt ]; then
+            cat run_summary.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "本次沒有產生執行摘要。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Create notification issue
+        if: steps.monitor.outputs.has_new_products == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: ${{ steps.monitor.outputs.issue_title }}
+        run: |
+          gh issue create \
+            --title "$ISSUE_TITLE" \
+            --body-file notification.md
+
+      - name: Save product history
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add seen_products.json
+
+          if git diff --cached --quiet; then
+            echo "商品紀錄沒有變更，不需要提交。"
+          else
+            git commit -m "Update monitored Beyblade products [skip ci]"
+            git push
+          fi
