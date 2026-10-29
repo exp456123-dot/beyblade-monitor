@@ -1,30 +1,40 @@
-import urllib.parse
-import urllib.request
+import asyncio
 import json
 import os
-from datetime import datetime, timezone, timedelta
+import re
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
+
+import requests
+from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 
 
-# ==========================================================
+# =========================================================
 # 使用者設定
-# ==========================================================
+# =========================================================
 
 KEYWORDS = [
     "BEYBLADE X",
+    "戰鬥陀螺 CX",
+    "戰鬥陀螺 UX",
+    "戰鬥陀螺 BX",
+]
+
+TARGET_WORDS = [
+    "BEYBLADE",
     "戰鬥陀螺",
     "CX-",
     "UX-",
     "BX-",
 ]
 
-MIN_PRICE = 100
-MAX_PRICE = 5000
-
 EXCLUDE_WORDS = [
     "二手",
     "中古",
     "盜版",
     "副廠",
+    "仿品",
     "貼紙",
     "收納",
     "展示盒",
@@ -36,55 +46,129 @@ EXCLUDE_WORDS = [
     "書包",
     "訂金",
     "尾款",
+    "代購",
 ]
+
+UNAVAILABLE_WORDS = [
+    "已售完",
+    "售罄",
+    "缺貨",
+    "暫無庫存",
+    "補貨中",
+    "停止銷售",
+    "已絕版",
+]
+
+MIN_PRICE = 100
+MAX_PRICE = 5000
+
+MAX_ITEMS_PER_STORE = 30
 
 STATE_FILE = "seen_products.json"
 
-TAIWAN_TZ = timezone(
+TAIWAN_TIMEZONE = timezone(
     timedelta(hours=8)
 )
 
+REQUEST_TIMEOUT = 30
 
-# ==========================================================
-# 時間
-# ==========================================================
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 "
+        "(Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/130.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+}
+
+
+# =========================================================
+# 共用功能
+# =========================================================
 
 def now():
     return datetime.now(
-        TAIWAN_TZ
+        TAIWAN_TIMEZONE
     ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ==========================================================
-# 商品過濾
-# ==========================================================
+def clean_text(text):
+    return re.sub(
+        r"\s+",
+        " ",
+        text or "",
+    ).strip()
 
-def product_allowed(name, price):
-    upper_name = name.upper()
 
-    # 排除不要的商品
-    for word in EXCLUDE_WORDS:
-        if word.upper() in upper_name:
-            return False
+def normalize_url(url):
+    if not url:
+        return ""
 
-    # 至少符合其中一個
-    target_words = [
-        "BEYBLADE",
-        "戰鬥陀螺",
-        "CX-",
-        "UX-",
-        "BX-",
+    parts = urlsplit(url)
+
+    return urlunsplit((
+        parts.scheme,
+        parts.netloc,
+        parts.path,
+        "",
+        "",
+    ))
+
+
+def parse_price(text):
+    if not text:
+        return None
+
+    patterns = [
+        r"NT\$\s*([\d,]+)",
+        r"\$\s*([\d,]+)",
+        r"售價[:：]?\s*([\d,]+)",
+        r"價格[:：]?\s*([\d,]+)",
     ]
 
-    if not any(
+    for pattern in patterns:
+        matches = re.findall(
+            pattern,
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        for value in matches:
+            try:
+                price = int(
+                    value.replace(",", "")
+                )
+
+                if MIN_PRICE <= price <= MAX_PRICE:
+                    return price
+
+            except ValueError:
+                continue
+
+    return None
+
+
+def product_allowed(name, price=None):
+    upper_name = clean_text(name).upper()
+
+    if not upper_name:
+        return False
+
+    if any(
         word.upper() in upper_name
-        for word in target_words
+        for word in EXCLUDE_WORDS
     ):
         return False
 
-    # 價格範圍
-    if price is not None:
+    if not any(
+        word.upper() in upper_name
+        for word in TARGET_WORDS
+    ):
+        return False
 
+    if price is not None:
         if price < MIN_PRICE:
             return False
 
@@ -94,549 +178,1081 @@ def product_allowed(name, price):
     return True
 
 
-# ==========================================================
-# 讀取商品歷史紀錄
-# ==========================================================
+def is_unavailable(text):
+    return any(
+        word in text
+        for word in UNAVAILABLE_WORDS
+    )
+
+
+def make_product(
+    store,
+    product_id,
+    name,
+    price,
+    url,
+    available=True,
+):
+    return {
+        "store": store,
+        "id": str(product_id),
+        "name": clean_text(name),
+        "price": price,
+        "url": normalize_url(url),
+        "available": bool(available),
+    }
+
+
+def product_key(product):
+    return (
+        product["store"]
+        + "|"
+        + product["id"]
+    )
+
 
 def load_state():
-
-    if not os.path.exists(
-        STATE_FILE
-    ):
+    if not os.path.exists(STATE_FILE):
         return {}
 
     try:
-
         with open(
             STATE_FILE,
             "r",
             encoding="utf-8",
         ) as file:
+            data = json.load(file)
 
-            return json.load(
-                file
-            )
+        if isinstance(data, dict):
+            return data
 
     except Exception as error:
-
         print(
-            "⚠️ 歷史紀錄讀取失敗：",
+            "⚠️ 讀取歷史紀錄失敗：",
             error,
         )
 
-        return {}
+    return {}
 
-
-# ==========================================================
-# 儲存商品紀錄
-# ==========================================================
 
 def save_state(state):
-
     with open(
         STATE_FILE,
         "w",
         encoding="utf-8",
     ) as file:
-
         json.dump(
             state,
             file,
             ensure_ascii=False,
             indent=2,
+            sort_keys=True,
         )
 
 
-# ==========================================================
-# PChome 搜尋
-# ==========================================================
+def deduplicate_products(products):
+    unique = {}
+
+    for product in products:
+        key = product_key(product)
+
+        if key not in unique:
+            unique[key] = product
+            continue
+
+        current = unique[key]
+
+        if (
+            current.get("price") is None
+            and product.get("price") is not None
+        ):
+            unique[key] = product
+
+    return list(unique.values())
+
+
+# =========================================================
+# PChome 監控
+# =========================================================
 
 def search_pchome(keyword):
+    products = []
 
-    base_url = (
+    api_url = (
         "https://ecshweb.pchome.com.tw/"
         "search/v3.3/all/results"
     )
 
-    params = urllib.parse.urlencode({
+    params = {
         "q": keyword,
         "page": 1,
         "sort": "sale/dc",
-    })
+    }
 
-    url = (
-        base_url
-        + "?"
-        + params
-    )
-
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 "
-                "(Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "Chrome/130 Safari/537.36"
-            ),
-            "Referer": (
-                "https://24h.pchome.com.tw/"
-            ),
-        },
-    )
-
-    print()
-    print(
-        "🔎 PChome 搜尋：",
-        keyword,
-    )
+    headers = {
+        **HEADERS,
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://24h.pchome.com.tw/",
+    }
 
     try:
+        response = requests.get(
+            api_url,
+            params=params,
+            headers=headers,
+            timeout=REQUEST_TIMEOUT,
+        )
 
-        with urllib.request.urlopen(
-            request,
-            timeout=30,
-        ) as response:
+        response.raise_for_status()
+        data = response.json()
 
-            data = json.loads(
-                response.read().decode(
-                    "utf-8"
+        for item in data.get(
+            "prods",
+            [],
+        )[:MAX_ITEMS_PER_STORE]:
+
+            product_id = item.get("Id")
+            name = clean_text(
+                item.get("name", "")
+            )
+            price = item.get("price")
+
+            if not product_id or not name:
+                continue
+
+            try:
+                price = int(price)
+
+            except (TypeError, ValueError):
+                price = None
+
+            if not product_allowed(
+                name,
+                price,
+            ):
+                continue
+
+            url = (
+                "https://24h.pchome.com.tw/prod/"
+                + str(product_id)
+            )
+
+            products.append(
+                make_product(
+                    store="PChome 24h",
+                    product_id=product_id,
+                    name=name,
+                    price=price,
+                    url=url,
+                    available=True,
                 )
             )
 
     except Exception as error:
-
         print(
-            "❌ PChome 搜尋失敗：",
+            "⚠️ PChome 搜尋失敗：",
             error,
         )
-
-        return []
-
-    products = []
-
-    for item in data.get(
-        "prods",
-        [],
-    ):
-
-        product_id = item.get(
-            "Id"
-        )
-
-        name = item.get(
-            "name",
-            "",
-        )
-
-        price = item.get(
-            "price"
-        )
-
-        if not product_id:
-            continue
-
-        try:
-
-            price = int(
-                price
-            )
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            price = None
-
-        if not product_allowed(
-            name,
-            price,
-        ):
-            continue
-
-        product_url = (
-            "https://24h.pchome.com.tw/prod/"
-            + product_id
-        )
-
-        products.append({
-            "store": "PChome 24h",
-            "id": product_id,
-            "name": name,
-            "price": price,
-            "url": product_url,
-        })
 
     return products
 
 
-# ==========================================================
-# 判斷新品與價格變化
-# ==========================================================
+# =========================================================
+# Playwright 共用功能
+# =========================================================
 
-def check_changes(
-    products,
-    old_state,
-):
+async def create_page(browser):
+    page = await browser.new_page(
+        viewport={
+            "width": 1440,
+            "height": 1000,
+        },
+        locale="zh-TW",
+        user_agent=HEADERS["User-Agent"],
+    )
 
-    alerts = []
+    await page.set_extra_http_headers({
+        "Accept-Language": (
+            "zh-TW,zh;q=0.9,en;q=0.8"
+        ),
+    })
 
-    new_state = {}
+    return page
 
-    for product in products:
 
-        product_id = (
-            product["id"]
+async def scroll_page(page, times=3):
+    for _ in range(times):
+        await page.mouse.wheel(
+            0,
+            1000,
         )
 
-        new_state[
-            product_id
-        ] = {
-            "store": product[
-                "store"
-            ],
-            "name": product[
-                "name"
-            ],
-            "price": product[
-                "price"
-            ],
-            "url": product[
-                "url"
-            ],
-            "last_seen": now(),
-        }
+        await page.wait_for_timeout(
+            1000
+        )
 
-        # ----------------------
-        # 新商品
-        # ----------------------
 
-        if product_id not in old_state:
+async def get_card_text(link):
+    best_text = ""
 
-            alert = (
-                product.copy()
+    selectors = [
+        "xpath=ancestor::li[1]",
+        "xpath=ancestor::article[1]",
+        "xpath=ancestor::div[1]",
+        "xpath=ancestor::div[2]",
+        "xpath=ancestor::div[3]",
+    ]
+
+    for selector in selectors:
+        try:
+            card = link.locator(
+                selector
             )
 
-            alert[
-                "reason"
-            ] = "🆕 發現新商品"
+            if await card.count() == 0:
+                continue
 
-            alerts.append(
-                alert
+            text = clean_text(
+                await card.first.inner_text(
+                    timeout=3000
+                )
             )
 
+            if len(text) > len(best_text):
+                best_text = text
+
+        except Exception:
             continue
 
-        # ----------------------
-        # 價格比較
-        # ----------------------
+    return best_text
 
-        old_price = old_state[
-            product_id
-        ].get(
-            "price"
+
+def guess_name(text, link_text=""):
+    link_text = clean_text(link_text)
+
+    if (
+        len(link_text) >= 6
+        and product_allowed(
+            link_text,
+            None,
         )
+    ):
+        return link_text
 
-        new_price = product.get(
-            "price"
+    lines = [
+        clean_text(line)
+        for line in re.split(
+            r"[\r\n]+",
+            text or "",
         )
+        if clean_text(line)
+    ]
 
-        if (
-            old_price is None
-            or new_price is None
+    candidates = []
+
+    for line in lines:
+        if len(line) < 6:
+            continue
+
+        if re.fullmatch(
+            r"(?:NT\$|\$)?[\d,]+",
+            line,
         ):
             continue
 
-        # ----------------------
-        # 降價
-        # ----------------------
+        if any(
+            word in line
+            for word in [
+                "加入購物車",
+                "立即購買",
+                "已售出",
+                "查看詳情",
+            ]
+        ):
+            continue
 
-        if new_price < old_price:
+        if product_allowed(
+            line,
+            None,
+        ):
+            candidates.append(line)
 
-            alert = (
-                product.copy()
-            )
+    if candidates:
+        return max(
+            candidates,
+            key=len,
+        )
 
-            alert[
-                "reason"
-            ] = "💰 發現降價"
+    return link_text
 
-            alert[
-                "old_price"
-            ] = old_price
 
-            alert[
-                "difference"
-            ] = (
-                old_price
-                - new_price
-            )
+# =========================================================
+# momo監控
+# =========================================================
 
-            alerts.append(
-                alert
-            )
+async def search_momo(browser, keyword):
+    products = []
+    page = await create_page(browser)
 
-    return (
-        alerts,
-        new_state,
+    search_url = (
+        "https://www.momoshop.com.tw/"
+        "search/searchShop.jsp"
+        f"?keyword={quote(keyword)}"
+        "&_isFuzzy=0&searchType=1"
     )
 
+    try:
+        await page.goto(
+            search_url,
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
 
-# ==========================================================
-# 顯示警報
-# ==========================================================
+        await page.wait_for_timeout(5000)
+        await scroll_page(page, 3)
 
-def show_alert(
-    product
-):
+        links = page.locator(
+            'a[href*="GoodsDetail.jsp"], '
+            'a[href*="goods.momo.com.tw/goods.momo"]'
+        )
 
+        count = await links.count()
+        processed = set()
+
+        for index in range(
+            min(count, 150)
+        ):
+            if len(products) >= MAX_ITEMS_PER_STORE:
+                break
+
+            try:
+                link = links.nth(index)
+
+                href = await link.get_attribute(
+                    "href"
+                )
+
+                if not href:
+                    continue
+
+                href = urljoin(
+                    "https://www.momoshop.com.tw/",
+                    href,
+                )
+
+                code_match = re.search(
+                    r"(?:i_code=|goodsCode=)(\d+)",
+                    href,
+                )
+
+                if not code_match:
+                    code_match = re.search(
+                        r"/(\d{6,})(?:[/?]|$)",
+                        href,
+                    )
+
+                if not code_match:
+                    continue
+
+                product_id = code_match.group(1)
+
+                if product_id in processed:
+                    continue
+
+                processed.add(product_id)
+
+                link_text = clean_text(
+                    await link.inner_text(
+                        timeout=3000
+                    )
+                )
+
+                card_text = await get_card_text(
+                    link
+                )
+
+                combined_text = clean_text(
+                    link_text + "\n" + card_text
+                )
+
+                name = guess_name(
+                    combined_text,
+                    link_text,
+                )
+
+                price = parse_price(
+                    combined_text
+                )
+
+                if not product_allowed(
+                    name,
+                    price,
+                ):
+                    continue
+
+                products.append(
+                    make_product(
+                        store="momo購物網",
+                        product_id=product_id,
+                        name=name,
+                        price=price,
+                        url=href,
+                        available=not is_unavailable(
+                            combined_text
+                        ),
+                    )
+                )
+
+            except Exception:
+                continue
+
+    except Exception as error:
+        print(
+            "⚠️ momo搜尋失敗：",
+            error,
+        )
+
+    finally:
+        await page.close()
+
+    return products
+
+
+# =========================================================
+# 蝦皮監控
+# =========================================================
+
+async def search_shopee(browser, keyword):
+    products = []
+    page = await create_page(browser)
+
+    search_url = (
+        "https://shopee.tw/search"
+        f"?keyword={quote(keyword)}"
+    )
+
+    try:
+        await page.goto(
+            search_url,
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+
+        await page.wait_for_timeout(8000)
+        await scroll_page(page, 4)
+
+        links = page.locator(
+            'a[href*="-i."]'
+        )
+
+        count = await links.count()
+        processed = set()
+
+        for index in range(
+            min(count, 200)
+        ):
+            if len(products) >= MAX_ITEMS_PER_STORE:
+                break
+
+            try:
+                link = links.nth(index)
+
+                href = await link.get_attribute(
+                    "href"
+                )
+
+                if not href:
+                    continue
+
+                href = urljoin(
+                    "https://shopee.tw/",
+                    href,
+                )
+
+                match = re.search(
+                    r"-i\.(\d+)\.(\d+)",
+                    href,
+                )
+
+                if not match:
+                    continue
+
+                shop_id = match.group(1)
+                item_id = match.group(2)
+
+                product_id = (
+                    shop_id
+                    + "-"
+                    + item_id
+                )
+
+                if product_id in processed:
+                    continue
+
+                processed.add(product_id)
+
+                link_text = clean_text(
+                    await link.inner_text(
+                        timeout=3000
+                    )
+                )
+
+                card_text = await get_card_text(
+                    link
+                )
+
+                combined_text = clean_text(
+                    link_text + "\n" + card_text
+                )
+
+                name = guess_name(
+                    combined_text,
+                    link_text,
+                )
+
+                price = parse_price(
+                    combined_text
+                )
+
+                if not product_allowed(
+                    name,
+                    price,
+                ):
+                    continue
+
+                products.append(
+                    make_product(
+                        store="蝦皮購物",
+                        product_id=product_id,
+                        name=name,
+                        price=price,
+                        url=href,
+                        available=not is_unavailable(
+                            combined_text
+                        ),
+                    )
+                )
+
+            except Exception:
+                continue
+
+    except Exception as error:
+        print(
+            "⚠️ 蝦皮搜尋失敗：",
+            error,
+        )
+
+    finally:
+        await page.close()
+
+    return products
+
+
+# =========================================================
+# 誠品監控
+# =========================================================
+
+async def search_eslite(browser, keyword):
+    products = []
+    page = await create_page(browser)
+
+    search_urls = [
+        (
+            "https://www.eslite.com/"
+            f"Search?keyword={quote(keyword)}"
+        ),
+        (
+            "https://www.eslite.com/"
+            f"search?keyword={quote(keyword)}"
+        ),
+    ]
+
+    loaded = False
+
+    try:
+        for search_url in search_urls:
+            try:
+                await page.goto(
+                    search_url,
+                    wait_until="domcontentloaded",
+                    timeout=60000,
+                )
+
+                await page.wait_for_timeout(
+                    5000
+                )
+
+                if await page.locator(
+                    'a[href*="/product/"]'
+                ).count() > 0:
+                    loaded = True
+                    break
+
+            except Exception:
+                continue
+
+        if not loaded:
+            print(
+                "⚠️ 誠品搜尋頁沒有找到商品連結"
+            )
+            return products
+
+        await scroll_page(page, 3)
+
+        links = page.locator(
+            'a[href*="/product/"]'
+        )
+
+        count = await links.count()
+        processed = set()
+
+        for index in range(
+            min(count, 150)
+        ):
+            if len(products) >= MAX_ITEMS_PER_STORE:
+                break
+
+            try:
+                link = links.nth(index)
+
+                href = await link.get_attribute(
+                    "href"
+                )
+
+                if not href:
+                    continue
+
+                href = urljoin(
+                    "https://www.eslite.com/",
+                    href,
+                )
+
+                clean_url = normalize_url(
+                    href
+                )
+
+                match = re.search(
+                    r"/product/([^/?#]+)",
+                    clean_url,
+                )
+
+                product_id = (
+                    match.group(1)
+                    if match
+                    else clean_url
+                )
+
+                if product_id in processed:
+                    continue
+
+                processed.add(product_id)
+
+                link_text = clean_text(
+                    await link.inner_text(
+                        timeout=3000
+                    )
+                )
+
+                card_text = await get_card_text(
+                    link
+                )
+
+                combined_text = clean_text(
+                    link_text + "\n" + card_text
+                )
+
+                name = guess_name(
+                    combined_text,
+                    link_text,
+                )
+
+                price = parse_price(
+                    combined_text
+                )
+
+                if not product_allowed(
+                    name,
+                    price,
+                ):
+                    continue
+
+                products.append(
+                    make_product(
+                        store="誠品線上",
+                        product_id=product_id,
+                        name=name,
+                        price=price,
+                        url=clean_url,
+                        available=not is_unavailable(
+                            combined_text
+                        ),
+                    )
+                )
+
+            except Exception:
+                continue
+
+    except Exception as error:
+        print(
+            "⚠️ 誠品搜尋失敗：",
+            error,
+        )
+
+    finally:
+        await page.close()
+
+    return products
+
+
+# =========================================================
+# 商品異動判斷
+# =========================================================
+
+def check_changes(products, old_state):
+    alerts = []
+    new_state = {}
+
+    current_keys = set()
+
+    for product in products:
+        key = product_key(product)
+        current_keys.add(key)
+
+        old_product = old_state.get(key)
+
+        state_entry = {
+            "store": product["store"],
+            "id": product["id"],
+            "name": product["name"],
+            "price": product["price"],
+            "url": product["url"],
+            "available": product["available"],
+            "last_seen": now(),
+        }
+
+        if old_product is None:
+            state_entry["first_seen"] = now()
+
+            if product["available"]:
+                alert = product.copy()
+                alert["reason"] = "🆕 發現新商品"
+                alerts.append(alert)
+
+        else:
+            state_entry["first_seen"] = (
+                old_product.get(
+                    "first_seen",
+                    now(),
+                )
+            )
+
+            old_available = old_product.get(
+                "available",
+                True,
+            )
+
+            new_available = product.get(
+                "available",
+                True,
+            )
+
+            if (
+                not old_available
+                and new_available
+            ):
+                alert = product.copy()
+                alert["reason"] = "🔥 商品恢復供貨"
+                alerts.append(alert)
+
+            old_price = old_product.get(
+                "price"
+            )
+
+            new_price = product.get(
+                "price"
+            )
+
+            if (
+                old_price is not None
+                and new_price is not None
+                and new_price < old_price
+            ):
+                alert = product.copy()
+                alert["reason"] = "💰 商品降價"
+                alert["old_price"] = old_price
+                alert["difference"] = (
+                    old_price - new_price
+                )
+                alerts.append(alert)
+
+        new_state[key] = state_entry
+
+    # 保留本次沒有抓到的歷史商品，
+    # 避免網站偶爾抓取失敗時把紀錄刪掉。
+    for key, old_product in old_state.items():
+        if key not in current_keys:
+            new_state[key] = old_product
+
+    return alerts, new_state
+
+
+# =========================================================
+# 顯示商品與通知
+# =========================================================
+
+def display_product(product):
     print()
+    print("-" * 70)
+    print("🏪 賣場：", product["store"])
+    print("🌀 商品：", product["name"])
+
+    if product["price"] is not None:
+        print(
+            "💰 價格：NT$",
+            format(
+                product["price"],
+                ",",
+            ),
+            sep="",
+        )
+    else:
+        print(
+            "💰 價格：未能辨識"
+        )
+
     print(
-        "🔥" * 25
+        "📦 狀態：",
+        (
+            "有貨或可購買"
+            if product["available"]
+            else "疑似缺貨"
+        ),
     )
 
     print(
-        product[
-            "reason"
-        ]
+        "🔗 網址：",
+        product["url"],
     )
+
+
+def display_alert(alert):
+    print()
+    print("=" * 70)
+    print(alert["reason"])
+    print("=" * 70)
 
     print(
         "🏪 賣場：",
-        product[
-            "store"
-        ],
-        sep="",
+        alert["store"],
     )
 
     print(
         "🌀 商品：",
-        product[
-            "name"
-        ],
-        sep="",
+        alert["name"],
     )
 
-    if product.get(
-        "price"
-    ) is not None:
-
+    if alert.get("price") is not None:
         print(
             "💰 現價：NT$",
             format(
-                product[
-                    "price"
-                ],
+                alert["price"],
                 ",",
             ),
             sep="",
         )
 
-    if product.get(
-        "old_price"
-    ) is not None:
-
+    if alert.get("old_price") is not None:
         print(
-            "💵 原價：NT$",
+            "原價：NT$",
             format(
-                product[
-                    "old_price"
-                ],
+                alert["old_price"],
                 ",",
             ),
             sep="",
         )
 
-    if product.get(
-        "difference"
-    ) is not None:
-
+    if alert.get("difference") is not None:
         print(
             "⬇️ 降價：NT$",
             format(
-                product[
-                    "difference"
-                ],
+                alert["difference"],
                 ",",
             ),
             sep="",
         )
 
     print(
-        "🔗 購買連結：",
-        product[
-            "url"
-        ],
-        sep="",
+        "🔗 購買：",
+        alert["url"],
     )
 
-    print(
-        "🔥" * 25
-    )
+    print("=" * 70)
 
 
-# ==========================================================
+# =========================================================
 # 主程式
-# ==========================================================
+# =========================================================
 
-def main():
+async def main():
+    print("=" * 70)
+    print("🔥 戰鬥陀螺四站開賣監控器")
+    print("🇹🇼 台灣時間：", now())
+    print("=" * 70)
 
-    print(
-        "=" * 60
-    )
-
-    print(
-        "🔥 戰鬥陀螺開賣監控器"
-    )
+    old_state = load_state()
 
     print(
-        "🇹🇼 台灣時間：",
-        now(),
-    )
-
-    print(
-        "=" * 60
-    )
-
-    old_state = (
-        load_state()
-    )
-
-    print(
-        "📚 已記錄商品：",
+        "📚 已儲存歷史商品：",
         len(old_state),
         "筆",
     )
 
-    all_products = {}
+    all_products = []
 
-    # ======================================================
-    # 搜尋
-    # ======================================================
-
-    for keyword in KEYWORDS:
-
-        products = (
-            search_pchome(
-                keyword
-            )
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+            ],
         )
 
-        print(
-            "   找到",
-            len(products),
-            "筆符合條件商品",
-        )
+        try:
+            for keyword in KEYWORDS:
+                print()
+                print("#" * 70)
+                print("🔎 搜尋關鍵字：", keyword)
+                print("#" * 70)
 
-        for product in products:
+                pchome_products = await asyncio.to_thread(
+                    search_pchome,
+                    keyword,
+                )
 
-            all_products[
-                product["id"]
-            ] = product
+                print(
+                    "PChome：",
+                    len(pchome_products),
+                    "筆",
+                )
 
-    products = list(
-        all_products.values()
+                all_products.extend(
+                    pchome_products
+                )
+
+                momo_products = await search_momo(
+                    browser,
+                    keyword,
+                )
+
+                print(
+                    "momo：",
+                    len(momo_products),
+                    "筆",
+                )
+
+                all_products.extend(
+                    momo_products
+                )
+
+                shopee_products = await search_shopee(
+                    browser,
+                    keyword,
+                )
+
+                print(
+                    "蝦皮：",
+                    len(shopee_products),
+                    "筆",
+                )
+
+                all_products.extend(
+                    shopee_products
+                )
+
+                eslite_products = await search_eslite(
+                    browser,
+                    keyword,
+                )
+
+                print(
+                    "誠品：",
+                    len(eslite_products),
+                    "筆",
+                )
+
+                all_products.extend(
+                    eslite_products
+                )
+
+        finally:
+            await browser.close()
+
+    products = deduplicate_products(
+        all_products
     )
 
-    # 價格低到高
     products.sort(
-        key=lambda item: (
-            item["price"]
-            if item["price"]
-            is not None
-            else 999999
+        key=lambda product: (
+            product["store"],
+            (
+                product["price"]
+                if product["price"] is not None
+                else 999999
+            ),
+            product["name"],
         )
     )
-
-    # ======================================================
-    # 顯示搜尋結果摘要
-    # ======================================================
 
     print()
+    print("=" * 70)
     print(
-        "=" * 60
-    )
-
-    print(
-        "📦 本次找到：",
+        "📦 本次共找到",
         len(products),
         "筆不重複商品",
     )
+    print("=" * 70)
 
-    print(
-        "=" * 60
-    )
+    for product in products:
+        display_product(product)
 
-    # ======================================================
-    # 判斷異動
-    # ======================================================
-
-    alerts, new_state = (
-        check_changes(
-            products,
-            old_state,
-        )
+    alerts, new_state = check_changes(
+        products,
+        old_state,
     )
 
     print()
+    print("=" * 70)
     print(
-        "🚨 本次發現：",
+        "🚨 本次異動通知：",
         len(alerts),
-        "個異動",
-    )
-
-    # ======================================================
-    # 顯示警報
-    # ======================================================
-
-    if alerts:
-
-        for alert in alerts:
-
-            show_alert(
-                alert
-            )
-
-    else:
-
-        print()
-        print(
-            "😴 沒有發現新品或降價"
-        )
-
-    # ======================================================
-    # 儲存最新狀態
-    # ======================================================
-
-    save_state(
-        new_state
-    )
-
-    print()
-    print(
-        "💾 商品資料已更新"
-    )
-
-    print(
-        "📚 目前記錄：",
-        len(new_state),
         "筆",
     )
+    print("=" * 70)
+
+    if alerts:
+        for alert in alerts:
+            display_alert(alert)
+    else:
+        print()
+        print(
+            "😴 沒有新品、恢復供貨或降價。"
+        )
+
+    save_state(new_state)
 
     print()
     print(
-        "=" * 60
+        "💾 已更新",
+        STATE_FILE,
     )
 
-    print(
-        "✅ 本次監控完成"
-    )
-
-    print(
-        "=" * 60
-    )
+    print()
+    print("=" * 70)
+    print("✅ 四站監控完成")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
