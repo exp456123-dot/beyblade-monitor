@@ -44,7 +44,7 @@ jobs:
       - name: Run Beyblade monitor
         id: monitor
         run: |
-          python runner.py
+          python monitor.py
 
       - name: Add result to GitHub Actions summary
         if: always()
