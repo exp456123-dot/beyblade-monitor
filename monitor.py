@@ -1,9 +1,13 @@
 import urllib.parse
 import urllib.request
 import json
+import os
 from datetime import datetime, timezone, timedelta
-from html import escape
 
+
+# ==========================================================
+# 使用者設定
+# ==========================================================
 
 KEYWORDS = [
     "BEYBLADE X",
@@ -34,8 +38,16 @@ EXCLUDE_WORDS = [
     "尾款",
 ]
 
-TAIWAN_TZ = timezone(timedelta(hours=8))
+STATE_FILE = "seen_products.json"
 
+TAIWAN_TZ = timezone(
+    timedelta(hours=8)
+)
+
+
+# ==========================================================
+# 時間
+# ==========================================================
 
 def now():
     return datetime.now(
@@ -43,13 +55,19 @@ def now():
     ).strftime("%Y-%m-%d %H:%M:%S")
 
 
+# ==========================================================
+# 商品過濾
+# ==========================================================
+
 def product_allowed(name, price):
     upper_name = name.upper()
 
+    # 排除不要的商品
     for word in EXCLUDE_WORDS:
         if word.upper() in upper_name:
             return False
 
+    # 至少符合其中一個
     target_words = [
         "BEYBLADE",
         "戰鬥陀螺",
@@ -64,7 +82,9 @@ def product_allowed(name, price):
     ):
         return False
 
+    # 價格範圍
     if price is not None:
+
         if price < MIN_PRICE:
             return False
 
@@ -74,7 +94,65 @@ def product_allowed(name, price):
     return True
 
 
+# ==========================================================
+# 讀取商品歷史紀錄
+# ==========================================================
+
+def load_state():
+
+    if not os.path.exists(
+        STATE_FILE
+    ):
+        return {}
+
+    try:
+
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8",
+        ) as file:
+
+            return json.load(
+                file
+            )
+
+    except Exception as error:
+
+        print(
+            "⚠️ 歷史紀錄讀取失敗：",
+            error,
+        )
+
+        return {}
+
+
+# ==========================================================
+# 儲存商品紀錄
+# ==========================================================
+
+def save_state(state):
+
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8",
+    ) as file:
+
+        json.dump(
+            state,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+
+# ==========================================================
+# PChome 搜尋
+# ==========================================================
+
 def search_pchome(keyword):
+
     base_url = (
         "https://ecshweb.pchome.com.tw/"
         "search/v3.3/all/results"
@@ -86,7 +164,11 @@ def search_pchome(keyword):
         "sort": "sale/dc",
     })
 
-    url = base_url + "?" + params
+    url = (
+        base_url
+        + "?"
+        + params
+    )
 
     request = urllib.request.Request(
         url,
@@ -97,349 +179,463 @@ def search_pchome(keyword):
                 "AppleWebKit/537.36 "
                 "Chrome/130 Safari/537.36"
             ),
-            "Referer": "https://24h.pchome.com.tw/",
+            "Referer": (
+                "https://24h.pchome.com.tw/"
+            ),
         },
     )
 
-    print("搜尋 PChome：", keyword)
+    print()
+    print(
+        "🔎 PChome 搜尋：",
+        keyword,
+    )
 
     try:
+
         with urllib.request.urlopen(
             request,
             timeout=30,
         ) as response:
 
             data = json.loads(
-                response.read().decode("utf-8")
+                response.read().decode(
+                    "utf-8"
+                )
             )
 
     except Exception as error:
-        print("PChome 搜尋失敗：", error)
+
+        print(
+            "❌ PChome 搜尋失敗：",
+            error,
+        )
+
         return []
 
     products = []
 
-    for item in data.get("prods", []):
-        product_id = item.get("Id")
-        name = item.get("name", "")
-        price = item.get("price")
+    for item in data.get(
+        "prods",
+        [],
+    ):
+
+        product_id = item.get(
+            "Id"
+        )
+
+        name = item.get(
+            "name",
+            "",
+        )
+
+        price = item.get(
+            "price"
+        )
 
         if not product_id:
             continue
 
         try:
-            price = int(price)
-        except (TypeError, ValueError):
+
+            price = int(
+                price
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
             price = None
 
-        if not product_allowed(name, price):
+        if not product_allowed(
+            name,
+            price,
+        ):
             continue
+
+        product_url = (
+            "https://24h.pchome.com.tw/prod/"
+            + product_id
+        )
 
         products.append({
             "store": "PChome 24h",
+            "id": product_id,
             "name": name,
             "price": price,
-            "url": (
-                "https://24h.pchome.com.tw/prod/"
-                + product_id
-            ),
+            "url": product_url,
         })
 
     return products
 
 
-def generate_html(products):
-    update_time = now()
+# ==========================================================
+# 判斷新品與價格變化
+# ==========================================================
 
-    cards = ""
+def check_changes(
+    products,
+    old_state,
+):
+
+    alerts = []
+
+    new_state = {}
 
     for product in products:
-        name = escape(product["name"])
-        store = escape(product["store"])
-        url = escape(
-            product["url"],
-            quote=True,
+
+        product_id = (
+            product["id"]
         )
 
-        if product["price"] is not None:
-            price = (
-                "NT$"
-                + format(product["price"], ",")
+        new_state[
+            product_id
+        ] = {
+            "store": product[
+                "store"
+            ],
+            "name": product[
+                "name"
+            ],
+            "price": product[
+                "price"
+            ],
+            "url": product[
+                "url"
+            ],
+            "last_seen": now(),
+        }
+
+        # ----------------------
+        # 新商品
+        # ----------------------
+
+        if product_id not in old_state:
+
+            alert = (
+                product.copy()
             )
-        else:
-            price = "價格未提供"
 
-        cards += f"""
-        <div class="card">
-            <div class="store">{store}</div>
+            alert[
+                "reason"
+            ] = "🆕 發現新商品"
 
-            <div class="name">
-                {name}
-            </div>
+            alerts.append(
+                alert
+            )
 
-            <div class="price">
-                {price}
-            </div>
+            continue
 
-            <a
-                class="buy"
-                href="{url}"
-                target="_blank"
-                rel="noopener noreferrer"
-            >
-                立即查看商品
-            </a>
-        </div>
-        """
+        # ----------------------
+        # 價格比較
+        # ----------------------
 
-    if not cards:
-        cards = """
-        <div class="empty">
-            目前沒有找到符合條件的戰鬥陀螺商品。
-        </div>
-        """
+        old_price = old_state[
+            product_id
+        ].get(
+            "price"
+        )
 
-    html = f"""<!DOCTYPE html>
-<html lang="zh-Hant">
+        new_price = product.get(
+            "price"
+        )
 
-<head>
+        if (
+            old_price is None
+            or new_price is None
+        ):
+            continue
 
-<meta charset="UTF-8">
+        # ----------------------
+        # 降價
+        # ----------------------
 
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
+        if new_price < old_price:
 
-<meta
-    http-equiv="refresh"
-    content="300"
->
+            alert = (
+                product.copy()
+            )
 
-<title>戰鬥陀螺開賣雷達</title>
+            alert[
+                "reason"
+            ] = "💰 發現降價"
 
-<style>
+            alert[
+                "old_price"
+            ] = old_price
 
-* {{
-    box-sizing: border-box;
-}}
+            alert[
+                "difference"
+            ] = (
+                old_price
+                - new_price
+            )
 
-body {{
-    margin: 0;
-    background: #0b1020;
-    color: white;
-    font-family:
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        "Microsoft JhengHei",
-        sans-serif;
-}}
+            alerts.append(
+                alert
+            )
 
-.header {{
-    background:
-        linear-gradient(
-            135deg,
-            #e53935,
-            #ff9800
-        );
-    padding: 28px 18px;
-    text-align: center;
-}}
+    return (
+        alerts,
+        new_state,
+    )
 
-.header h1 {{
-    margin: 0;
-    font-size: 30px;
-}}
 
-.header p {{
-    margin: 10px 0 0;
-    opacity: 0.95;
-}}
+# ==========================================================
+# 顯示警報
+# ==========================================================
 
-.container {{
-    max-width: 900px;
-    margin: auto;
-    padding: 18px;
-}}
+def show_alert(
+    product
+):
 
-.info {{
-    background: #151d34;
-    padding: 16px;
-    border-radius: 14px;
-    margin-bottom: 18px;
-}}
+    print()
+    print(
+        "🔥" * 25
+    )
 
-.count {{
-    font-size: 22px;
-    font-weight: bold;
-    color: #ffca28;
-}}
+    print(
+        product[
+            "reason"
+        ]
+    )
 
-.card {{
-    background: #151d34;
-    border: 1px solid #273453;
-    border-radius: 16px;
-    padding: 18px;
-    margin-bottom: 14px;
-    box-shadow:
-        0 4px 12px
-        rgba(0, 0, 0, 0.25);
-}}
+    print(
+        "🏪 賣場：",
+        product[
+            "store"
+        ],
+        sep="",
+    )
 
-.store {{
-    display: inline-block;
-    padding: 5px 10px;
-    background: #1976d2;
-    border-radius: 20px;
-    font-size: 14px;
-    margin-bottom: 10px;
-}}
+    print(
+        "🌀 商品：",
+        product[
+            "name"
+        ],
+        sep="",
+    )
 
-.name {{
-    font-size: 18px;
-    line-height: 1.5;
-    font-weight: 600;
-}}
+    if product.get(
+        "price"
+    ) is not None:
 
-.price {{
-    color: #ffca28;
-    font-size: 26px;
-    font-weight: bold;
-    margin: 14px 0;
-}}
+        print(
+            "💰 現價：NT$",
+            format(
+                product[
+                    "price"
+                ],
+                ",",
+            ),
+            sep="",
+        )
 
-.buy {{
-    display: block;
-    width: 100%;
-    padding: 13px;
-    border-radius: 10px;
-    background: #e53935;
-    color: white;
-    text-decoration: none;
-    text-align: center;
-    font-weight: bold;
-}}
+    if product.get(
+        "old_price"
+    ) is not None:
 
-.buy:hover {{
-    background: #ff5252;
-}}
+        print(
+            "💵 原價：NT$",
+            format(
+                product[
+                    "old_price"
+                ],
+                ",",
+            ),
+            sep="",
+        )
 
-.empty {{
-    background: #151d34;
-    padding: 30px;
-    border-radius: 14px;
-    text-align: center;
-}}
+    if product.get(
+        "difference"
+    ) is not None:
 
-.footer {{
-    text-align: center;
-    color: #8892a6;
-    font-size: 13px;
-    padding: 20px;
-}}
+        print(
+            "⬇️ 降價：NT$",
+            format(
+                product[
+                    "difference"
+                ],
+                ",",
+            ),
+            sep="",
+        )
 
-</style>
+    print(
+        "🔗 購買連結：",
+        product[
+            "url"
+        ],
+        sep="",
+    )
 
-</head>
+    print(
+        "🔥" * 25
+    )
 
-<body>
 
-<div class="header">
-
-    <h1>🔥 戰鬥陀螺開賣雷達</h1>
-
-    <p>
-        Beyblade X 商品監控
-    </p>
-
-</div>
-
-<div class="container">
-
-    <div class="info">
-
-        <div class="count">
-            📦 找到 {len(products)} 筆商品
-        </div>
-
-        <div>
-            🕐 最後更新：{update_time}
-        </div>
-
-        <div>
-            📡 目前監控：PChome 24h
-        </div>
-
-    </div>
-
-    {cards}
-
-</div>
-
-<div class="footer">
-    戰鬥陀螺商品資訊僅供快速查詢，
-    實際庫存與價格請以購物網站為準。
-</div>
-
-</body>
-
-</html>
-"""
-
-    with open(
-        "index.html",
-        "w",
-        encoding="utf-8",
-    ) as file:
-        file.write(html)
-
+# ==========================================================
+# 主程式
+# ==========================================================
 
 def main():
-    print("=" * 60)
-    print("🔥 戰鬥陀螺開賣雷達")
-    print("更新時間：", now())
-    print("=" * 60)
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        "🔥 戰鬥陀螺開賣監控器"
+    )
+
+    print(
+        "🇹🇼 台灣時間：",
+        now(),
+    )
+
+    print(
+        "=" * 60
+    )
+
+    old_state = (
+        load_state()
+    )
+
+    print(
+        "📚 已記錄商品：",
+        len(old_state),
+        "筆",
+    )
 
     all_products = {}
 
+    # ======================================================
+    # 搜尋
+    # ======================================================
+
     for keyword in KEYWORDS:
-        products = search_pchome(keyword)
+
+        products = (
+            search_pchome(
+                keyword
+            )
+        )
 
         print(
-            "找到",
+            "   找到",
             len(products),
             "筆符合條件商品",
         )
 
         for product in products:
+
             all_products[
-                product["url"]
+                product["id"]
             ] = product
 
     products = list(
         all_products.values()
     )
 
+    # 價格低到高
     products.sort(
         key=lambda item: (
             item["price"]
-            if item["price"] is not None
+            if item["price"]
+            is not None
             else 999999
+        )
+    )
+
+    # ======================================================
+    # 顯示搜尋結果摘要
+    # ======================================================
+
+    print()
+    print(
+        "=" * 60
+    )
+
+    print(
+        "📦 本次找到：",
+        len(products),
+        "筆不重複商品",
+    )
+
+    print(
+        "=" * 60
+    )
+
+    # ======================================================
+    # 判斷異動
+    # ======================================================
+
+    alerts, new_state = (
+        check_changes(
+            products,
+            old_state,
         )
     )
 
     print()
     print(
-        "共找到",
-        len(products),
-        "筆商品"
+        "🚨 本次發現：",
+        len(alerts),
+        "個異動",
     )
 
-    generate_html(products)
+    # ======================================================
+    # 顯示警報
+    # ======================================================
 
-    print("index.html 已產生")
-    print("監控完成")
+    if alerts:
+
+        for alert in alerts:
+
+            show_alert(
+                alert
+            )
+
+    else:
+
+        print()
+        print(
+            "😴 沒有發現新品或降價"
+        )
+
+    # ======================================================
+    # 儲存最新狀態
+    # ======================================================
+
+    save_state(
+        new_state
+    )
+
+    print()
+    print(
+        "💾 商品資料已更新"
+    )
+
+    print(
+        "📚 目前記錄：",
+        len(new_state),
+        "筆",
+    )
+
+    print()
+    print(
+        "=" * 60
+    )
+
+    print(
+        "✅ 本次監控完成"
+    )
+
+    print(
+        "=" * 60
+    )
 
 
 if __name__ == "__main__":
