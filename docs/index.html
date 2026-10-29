@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <meta
+    name="description"
+    content="PChome、momo、蝦皮及誠品戰鬥陀螺商品監控"
+  >
+
+  <title>戰鬥陀螺雷達</title>
+
+  <style>
+    :root {
+      --background: #07111f;
+      --panel: #10233a;
+      --panel-light: #173451;
+      --text: #f4f8ff;
+      --muted: #a8bad0;
+      --blue: #2e9cff;
+      --cyan: #01d9ff;
+      --green: #28d17c;
+      --red: #ff5d6c;
+      --yellow: #ffd166;
+      --border: rgba(255, 255, 255, 0.12);
+      --shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(
+          circle at top right,
+          rgba(46, 156, 255, 0.22),
+          transparent 34%
+        ),
+        radial-gradient(
+          circle at bottom left,
+          rgba(1, 217, 255, 0.12),
+          transparent 30%
+        ),
+        var(--background);
+      font-family:
+        "Microsoft JhengHei",
+        "Noto Sans TC",
+        Arial,
+        sans-serif;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page {
+      width: min(1240px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 60px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 34px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background:
+        linear-gradient(
+          135deg,
+          rgba(46, 156, 255, 0.18),
+          rgba(16, 35, 58, 0.95)
+        );
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 240px;
+      height: 240px;
+      right: -70px;
+      top: -90px;
+      border-radius: 50%;
+      background:
+        radial-gradient(
+          circle,
+          rgba(1, 217, 255, 0.5),
+          transparent 68%
+        );
+      pointer-events: none;
+    }
+
+    .hero-label {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 6px 10px;
+      color: var(--cyan);
+      border: 1px solid rgba(1, 217, 255, 0.35);
+      border-radius: 999px;
+      background: rgba(1, 217, 255, 0.08);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(32px, 6vw, 62px);
+      line-height: 1.05;
+    }
+
+    .hero p {
+      max-width: 720px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .updated {
+      margin-top: 18px;
+      color: var(--yellow);
+      font-size: 14px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns:
+        repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin: 20px 0;
+    }
+
+    .summary-card {
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(16, 35, 58, 0.88);
+      box-shadow: var(--shadow);
+    }
+
+    .summary-card span {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .summary-card strong {
+      font-size: 30px;
+    }
+
+    .summary-card.available strong {
+      color: var(--green);
+    }
+
+    .summary-card.unavailable strong {
+      color: var(--red);
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns:
+        minmax(0, 1fr) 180px 180px;
+      gap: 12px;
+      margin: 20px 0;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(16, 35, 58, 0.82);
+    }
+
+    .toolbar input,
+    .toolbar select {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 14px;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      outline: none;
+      background: var(--panel-light);
+    }
+
+    .toolbar input:focus,
+    .toolbar select:focus {
+      border-color: var(--blue);
+      box-shadow:
+        0 0 0 3px rgba(46, 156, 255, 0.15);
+    }
+
+    .store-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .store-chip {
+      padding: 9px 12px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(16, 35, 58, 0.82);
+      font-size: 13px;
+    }
+
+    .products {
+      display: grid;
+      grid-template-columns:
+        repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .product-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 280px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(23, 52, 81, 0.96),
+          rgba(16, 35, 58, 0.96)
+        );
+      box-shadow: var(--shadow);
+      transition:
+        transform 0.18s ease,
+        border-color 0.18s ease;
+    }
+
+    .product-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(46, 156, 255, 0.55);
+    }
+
+    .product-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .store {
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .status {
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status.available {
+      color: #071b10;
+      background: var(--green);
+    }
+
+    .status.unavailable {
+      color: white;
+      background: var(--red);
+    }
+
+    .product-name {
+      margin: 0 0 18px;
+      font-size: 17px;
+      line-height: 1.6;
+    }
+
+    .price {
+      margin-top: auto;
+      color: var(--yellow);
+      font-size: 27px;
+      font-weight: 800;
+    }
+
+    .price.unknown {
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .product-time {
+      margin: 12px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .buy-button {
+      display: block;
+      padding: 12px 14px;
+      color: white;
+      border-radius: 12px;
+      background:
+        linear-gradient(
+          135deg,
+          var(--blue),
+          #1768dc
+        );
+      text-align: center;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .buy-button:hover {
+      filter: brightness(1.12);
+    }
+
+    .empty {
+      grid-column: 1 / -1;
+      padding: 50px 20px;
+      color: var(--muted);
+      border: 1px dashed var(--border);
+      border-radius: 18px;
+      text-align: center;
+    }
+
+    .loading {
+      padding: 50px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .error {
+      padding: 24px;
+      color: #ffd1d6;
+      border: 1px solid rgba(255, 93, 108, 0.4);
+      border-radius: 16px;
+      background: rgba(255, 93, 108, 0.09);
+    }
+
+    footer {
+      margin-top: 32px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.8;
+      text-align: center;
+    }
+
+    @media (max-width: 900px) {
+      .summary-grid {
+        grid-template-columns:
+          repeat(2, minmax(0, 1fr));
+      }
+
+      .products {
+        grid-template-columns:
+          repeat(2, minmax(0, 1fr));
+      }
+
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .page {
+        width: min(100% - 20px, 1240px);
+        padding-top: 14px;
+      }
+
+      .hero {
+        padding: 24px 20px;
+      }
+
+      .summary-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .summary-card {
+        padding: 16px;
+      }
+
+      .summary-card strong {
+        font-size: 24px;
+      }
+
+      .products {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-label">
+        BEYBLADE STOCK RADAR
+      </div>
+
+      <h1>戰鬥陀螺雷達</h1>
+
+      <p>
+        自動整理 PChome、momo、蝦皮及誠品的
+        BEYBLADE X、CX、UX、BX 商品。
+        點擊商品即可前往賣場查看最新庫存及價格。
+      </p>
+
+      <div
+        id="updatedAt"
+        class="updated"
+      >
+        最後更新：讀取中
+      </div>
+    </section>
+
+    <section class="summary-grid">
+      <div class="summary-card">
+        <span>商品總數</span>
+        <strong id="totalCount">0</strong>
+      </div>
+
+      <div class="summary-card available">
+        <span>目前有貨</span>
+        <strong id="availableCount">0</strong>
+      </div>
+
+      <div class="summary-card unavailable">
+        <span>疑似缺貨</span>
+        <strong id="unavailableCount">0</strong>
+      </div>
+
+      <div class="summary-card">
+        <span>顯示結果</span>
+        <strong id="visibleCount">0</strong>
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <input
+        id="keywordInput"
+        type="search"
+        placeholder="搜尋 CX-19、UX、商品名稱..."
+        aria-label="搜尋商品"
+      >
+
+      <select
+        id="storeSelect"
+        aria-label="選擇賣場"
+      >
+        <option value="">全部賣場</option>
+      </select>
+
+      <select
+        id="statusSelect"
+        aria-label="選擇庫存狀態"
+      >
+        <option value="">全部狀態</option>
+        <option value="available">有貨或可購買</option>
+        <option value="unavailable">疑似缺貨</option>
+      </select>
+    </section>
+
+    <section
+      id="storeSummary"
+      class="store-summary"
+    ></section>
+
+    <section
+      id="products"
+      class="products"
+    >
+      <div class="loading">
+        正在載入商品資料...
+      </div>
+    </section>
+
+    <footer>
+      商品狀態由自動監控程式判斷，實際庫存、售價及商品版本
+      仍以各賣場商品頁為準。網站不會自動下單。
+    </footer>
+  </main>
+
+  <script>
+    let allProducts = [];
+
+    const productsElement =
+      document.getElementById("products");
+
+    const keywordInput =
+      document.getElementById("keywordInput");
+
+    const storeSelect =
+      document.getElementById("storeSelect");
+
+    const statusSelect =
+      document.getElementById("statusSelect");
+
+    const totalCount =
+      document.getElementById("totalCount");
+
+    const availableCount =
+      document.getElementById("availableCount");
+
+    const unavailableCount =
+      document.getElementById("unavailableCount");
+
+    const visibleCount =
+      document.getElementById("visibleCount");
+
+    const updatedAt =
+      document.getElementById("updatedAt");
+
+    const storeSummary =
+      document.getElementById("storeSummary");
+
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+
+    function formatPrice(price) {
+      if (
+        price === null ||
+        price === undefined ||
+        Number.isNaN(Number(price))
+      ) {
+        return "價格未辨識";
+      }
+
+      return "NT$" +
+        Number(price).toLocaleString("zh-TW");
+    }
+
+
+    function createStoreOptions(products) {
+      const stores = [
+        ...new Set(
+          products.map(product => product.store)
+        )
+      ].sort();
+
+      for (const store of stores) {
+        const option =
+          document.createElement("option");
+
+        option.value = store;
+        option.textContent = store;
+
+        storeSelect.appendChild(option);
+      }
+    }
+
+
+    function showStoreSummary(summary) {
+      storeSummary.innerHTML = "";
+
+      const stores = summary?.stores || {};
+
+      for (const [store, counts] of Object.entries(stores)) {
+        const chip =
+          document.createElement("div");
+
+        chip.className = "store-chip";
+
+        chip.textContent =
+          `${store}：${counts.total} 筆，` +
+          `有貨 ${counts.available} 筆`;
+
+        storeSummary.appendChild(chip);
+      }
+    }
+
+
+    function productCard(product) {
+      const available =
+        product.available !== false;
+
+      const statusClass =
+        available
+          ? "available"
+          : "unavailable";
+
+      const statusText =
+        available
+          ? "有貨或可購買"
+          : "疑似缺貨";
+
+      const priceClass =
+        product.price === null ||
+        product.price === undefined
+          ? "price unknown"
+          : "price";
+
+      const safeUrl =
+        /^https?:\/\//i.test(product.url || "")
+          ? product.url
+          : "#";
+
+      return `
+        <article class="product-card">
+          <div class="product-top">
+            <span class="store">
+              ${escapeHtml(product.store)}
+            </span>
+
+            <span class="status ${statusClass}">
+              ${statusText}
+            </span>
+          </div>
+
+          <h2 class="product-name">
+            ${escapeHtml(product.name)}
+          </h2>
+
+          <div class="${priceClass}">
+            ${formatPrice(product.price)}
+          </div>
+
+          <div class="product-time">
+            最後偵測：
+            ${escapeHtml(
+              product.last_seen || "未記錄"
+            )}
+          </div>
+
+          <a
+            class="buy-button"
+            href="${escapeHtml(safeUrl)}"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            前往商品頁
+          </a>
+        </article>
+      `;
+    }
+
+
+    function applyFilters() {
+      const keyword =
+        keywordInput.value
+          .trim()
+          .toLowerCase();
+
+      const selectedStore =
+        storeSelect.value;
+
+      const selectedStatus =
+        statusSelect.value;
+
+      const filtered =
+        allProducts.filter(product => {
+          const searchableText = [
+            product.store,
+            product.name,
+            product.id
+          ]
+            .join(" ")
+            .toLowerCase();
+
+          const keywordMatches =
+            !keyword ||
+            searchableText.includes(keyword);
+
+          const storeMatches =
+            !selectedStore ||
+            product.store === selectedStore;
+
+          const isAvailable =
+            product.available !== false;
+
+          const statusMatches =
+            !selectedStatus ||
+            (
+              selectedStatus === "available" &&
+              isAvailable
+            ) ||
+            (
+              selectedStatus === "unavailable" &&
+              !isAvailable
+            );
+
+          return (
+            keywordMatches &&
+            storeMatches &&
+            statusMatches
+          );
+        });
+
+      visibleCount.textContent =
+        filtered.length;
+
+      if (filtered.length === 0) {
+        productsElement.innerHTML = `
+          <div class="empty">
+            沒有符合目前搜尋條件的商品。
+          </div>
+        `;
+
+        return;
+      }
+
+      productsElement.innerHTML =
+        filtered
+          .map(productCard)
+          .join("");
+    }
+
+
+    async function loadProducts() {
+      try {
+        const response = await fetch(
+          "./products.json?time=" + Date.now(),
+          {
+            cache: "no-store"
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            "HTTP " + response.status
+          );
+        }
+
+        const data = await response.json();
+
+        allProducts =
+          Array.isArray(data.products)
+            ? data.products
+            : [];
+
+        updatedAt.textContent =
+          "最後更新：" +
+          (
+            data.updated_at ||
+            "未提供"
+          );
+
+        const summary =
+          data.summary || {};
+
+        totalCount.textContent =
+          summary.total ??
+          allProducts.length;
+
+        availableCount.textContent =
+          summary.available ??
+          allProducts.filter(
+            product =>
+              product.available !== false
+          ).length;
+
+        unavailableCount.textContent =
+          summary.unavailable ??
+          allProducts.filter(
+            product =>
+              product.available === false
+          ).length;
+
+        createStoreOptions(allProducts);
+        showStoreSummary(summary);
+        applyFilters();
+
+      } catch (error) {
+        console.error(error);
+
+        productsElement.innerHTML = `
+          <div class="error">
+            無法載入 products.json。
+            請先執行一次 GitHub Actions，
+            並確認 docs/products.json 已成功產生。
+          </div>
+        `;
+
+        updatedAt.textContent =
+          "最後更新：讀取失敗";
+      }
+    }
+
+
+    keywordInput.addEventListener(
+      "input",
+      applyFilters
+    );
+
+    storeSelect.addEventListener(
+      "change",
+      applyFilters
+    );
+
+    statusSelect.addEventListener(
+      "change",
+      applyFilters
+    );
+
+    loadProducts();
+  </script>
+</body>
+</html>
