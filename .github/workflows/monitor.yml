@@ -43,22 +43,28 @@ jobs:
         run: |
           python monitor.py
 
-      - name: Save product status
+      - name: Save product status and web page
         if: always()
         run: |
-          if [ -f seen_products.json ]; then
+          if [ -f seen_products.json ] || [ -f index.html ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            git add seen_products.json
+            if [ -f seen_products.json ]; then
+              git add seen_products.json
+            fi
+
+            if [ -f index.html ]; then
+              git add index.html
+            fi
 
             if ! git diff --cached --quiet; then
-              git commit -m "Update Beyblade product status"
+              git commit -m "Update Beyblade monitor results"
               git pull --rebase
               git push
             else
-              echo "No product status changes."
+              echo "No product or page changes."
             fi
           else
-            echo "seen_products.json does not exist."
+            echo "No output files were generated."
           fi
