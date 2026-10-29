@@ -108,6 +108,26 @@ def normalize_url(url):
 
     parts = urlsplit(url)
 
+    # momo商品編號位於i_code查詢參數中，必須保留
+    if "momoshop.com.tw" in parts.netloc:
+        query_items = []
+
+        for item in parts.query.split("&"):
+            if item.startswith("i_code="):
+                query_items.append(item)
+
+            elif item.startswith("goodsCode="):
+                query_items.append(item)
+
+        return urlunsplit((
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            "&".join(query_items),
+            "",
+        ))
+
+    # 其他網站移除追蹤參數
     return urlunsplit((
         parts.scheme,
         parts.netloc,
