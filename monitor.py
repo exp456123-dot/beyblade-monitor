@@ -20,7 +20,6 @@ SEARCH_KEYWORDS = [
 
 # 商品至少要包含其中一個關鍵字
 PRODUCT_WORDS = [
-    "BEYBLADE",
     "戰鬥陀螺",
     "CX-",
     "UX-",
@@ -43,6 +42,15 @@ EXCLUDE_WORDS = [
     "漫畫",
     "電子書",
     "小說",
+    "童書",
+    "雜誌",
+    "書籍",
+    "攻略本",
+    "附錄",
+    "ガイド",
+    "GUIDE",
+    "VOL.",
+    "ISBN",
     "貼紙",
     "收納盒",
     "收納包",
@@ -367,10 +375,6 @@ async def search_momo_funbox(browser):
                         f"{link_text} {card_text}"
                     )
 
-                    # momo 只接受商品卡中有 Funbox 的商品
-                    if "FUNBOX" not in full_text.upper():
-                        continue
-
                     name = find_product_name(
                         link_text,
                         card_text,
@@ -487,9 +491,24 @@ async def search_eslite(browser):
                     if not name:
                         continue
 
-                    if not is_beyblade_product(
+                                       if not is_beyblade_product(
                         name,
                         full_text,
+                    ):
+                        continue
+
+                    # 誠品只保留有玩具型號或中文品名的商品，
+                    # 避免抓到 Beyblade 英文漫畫。
+                    eslite_required_words = [
+                        "戰鬥陀螺",
+                        "CX-",
+                        "UX-",
+                        "BX-",
+                    ]
+
+                    if not any(
+                        word.upper() in full_text.upper()
+                        for word in eslite_required_words
                     ):
                         continue
 
